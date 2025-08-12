@@ -12,11 +12,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        collective-lib = collective-public.packages.${system}.collective-lib;
-        reflectLib = import ./lib {
-          inherit (pkgs) lib;
-          inherit collective-lib nix-parsec;
-        };
+        reflectLib = import ./lib { inherit pkgs inputs; };
       in {
         lib = reflectLib;
         devShells.default = pkgs.mkShell { };  
