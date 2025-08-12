@@ -13,7 +13,7 @@ let
   eval = collective-lib.eval;
   typed = collective-lib.typed;
   log = collective-lib.log;
-  parsecLib = import nix-parsec;
+  parsecLib = nix-parsec;
 in 
   with typed;
 let this = rec {

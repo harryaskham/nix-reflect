@@ -14,6 +14,6 @@ in rec {
   };
 
   debuglib = import ./debuglib.nix {
-    inherit collective-lib;
+    inherit lib collective-lib;
   };
 }
