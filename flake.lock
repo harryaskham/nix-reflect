@@ -8,11 +8,11 @@
         "nixpkgs": "nixpkgs_5"
       },
       "locked": {
-        "lastModified": 1754996108,
+        "lastModified": 1754996183,
         "narHash": "sha256-bHILsPP/zhdCBDapVICDvNMopKH3MV6NZstNwneCkGs=",
         "owner": "harryaskham",
         "repo": "collective-public",
-        "rev": "3fbe518ee9a9913cc02258420baf6e48594ae69b",
+        "rev": "d64901e7e72664e4605890a9c3d654173b3c9089",
         "type": "github"
       },
       "original": {
