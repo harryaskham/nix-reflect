@@ -2,7 +2,7 @@
 
 let
   lib = pkgs.lib;
-  collective-lib = inputs.collective-public.packages.${pkgs.system}.collective-lib;
+  collective-lib = inputs.collective-public.lib.${pkgs.system};
   nix-parsec = inputs.nix-parsec;
 in rec {
   parser = import ./parser/default.nix {
