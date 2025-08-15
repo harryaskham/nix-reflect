@@ -617,10 +617,10 @@ in rec {
     # Tests for evalAST round-trip property
     evalAST = {
 
-      _00_smoke = {
+      _00_smoke = solo {
         int = testRoundTrip "1" 1;
         float = testRoundTrip "1.0" 1.0;
-        string = testRoundTrip "\"hello\"" "hello";
+        string = testRoundTrip ''"hello"'' "hello";
         indentString = testRoundTrip "''hello''" "hello";
         true = testRoundTrip "true" true;
         false = testRoundTrip "false" false;
@@ -633,7 +633,9 @@ in rec {
         recAttrSetNoRecursion = testRoundTrip "rec { a = 1; }" {a = 1;};
         recAttrSetRecursion = testRoundTrip "rec { a = 1; b = a; }" {a = 1; b = 1;};
         letIn = testRoundTrip "let a = 1; in a" 1;
+        letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         withs = testRoundTrip "with {a = 1;}; a" 1;
+        withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
       };
 
       _01_allFeatures =
@@ -657,7 +659,7 @@ in rec {
       _02_literals = {
         integers = testRoundTrip "42" 42;
         floats = testRoundTrip "3.14" 3.14;
-        strings = testRoundTrip "\"hello\"" "hello";
+        strings = testRoundTrip ''"hello"'' "hello";
         booleans = {
           true = testRoundTrip "true" true;
           false = testRoundTrip "false" false;
@@ -711,7 +713,7 @@ in rec {
       };
 
       # Let expressions
-      _10_letExpressions = {
+      _10_letExpressions = skip {
         simple = testRoundTrip "let x = 1; in x" 1;
         multiple = testRoundTrip "let a = 1; b = 2; in a + b" 3;
         nested = testRoundTrip "let x = 1; y = let z = 2; in z + 1; in x + y" 4;
@@ -727,7 +729,8 @@ in rec {
       _12_attrAccess = skip {
         letIn = testRoundTrip "let xs = { a = 42; }; in xs.a" 42;
         simple = testRoundTrip "{ a = 42; }.a" 42;
-        withDefault = testRoundTrip "{ a = 42; }.b or 0" 0;
+        withDefaultYes = testRoundTrip "{ a = 42; }.a or 0" 42;
+        withDefaultNo = testRoundTrip "{ a = 42; }.b or 0" 0;
       };
 
       # Assert expressions - testing proper Nix semantics

@@ -426,6 +426,8 @@ rec {
           __toString = self: _b_ "Eval ${A} (${_ph_ self.e})";
           inherit S E A s e;
 
+          strictState = true;
+
           # modify :: (EvalState -> EvalState) -> Eval A -> Eval {}
           modify = f: 
             if isLeft this.e then this else
@@ -438,8 +440,14 @@ rec {
           # Thunked to avoid infinite nesting - (m.get {}) is an (Eval EvalState)
           get = {_, ...}: _.pure (this.s (S.mempty {}));
 
-          setState = s: Eval A s this.e;
-          mapState = f: Eval A (f this.s) this.e;
+          setState = s: (Eval A s this.e).maybeForceState {};
+          mapState = f: (Eval A (f this.s) this.e).maybeForceState {};
+          maybeForceState = {}:
+            if this.strictState then this.forceState {} else this;
+          forceState = {}:
+            let state = this.s (S.mempty {});
+            in Eval A (const state) this.e;
+
           mapEither = f: 
             let e = f this.e;
             in e.case {
