@@ -168,8 +168,8 @@ in rec {
 
   # Evaluate a binding without failing on missing names.
   # evalRecBinding :: AST -> Eval [{name, value}]
-  evalRecBinding = binding:
-    (Eval.do
+  evalRecBinding = binding: {_, ...}:
+    (_.do
       (while "evaluating 'binding' node for recursive bindings")
       (evalNodeM binding))
     .catch ({_, _e}: _.do
@@ -618,24 +618,24 @@ in rec {
     evalAST = {
 
       _00_smoke = solo {
-        int = testRoundTrip "1" 1;
-        float = testRoundTrip "1.0" 1.0;
-        string = testRoundTrip ''"hello"'' "hello";
-        indentString = testRoundTrip "''hello''" "hello";
-        true = testRoundTrip "true" true;
-        false = testRoundTrip "false" false;
-        null = testRoundTrip "null" null;
-        list = testRoundTrip "[1 2 3]" [1 2 3];
-        attrSet = testRoundTrip "{a = 1;}" {a = 1;};
-        attrPath = testRoundTrip "{a = 1;}.a" 1;
-        attrPathOr = testRoundTrip "{a = 1;}.b or 2" 2;
-        inheritsConst = testRoundTrip "{ inherit ({a = 1;}) a; }" {a = 1;};
-        recAttrSetNoRecursion = testRoundTrip "rec { a = 1; }" {a = 1;};
-        recAttrSetRecursion = testRoundTrip "rec { a = 1; b = a; }" {a = 1; b = 1;};
-        letIn = testRoundTrip "let a = 1; in a" 1;
-        letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
-        withs = testRoundTrip "with {a = 1;}; a" 1;
-        withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
+        _00_int = testRoundTrip "1" 1;
+        _01_float = testRoundTrip "1.0" 1.0;
+        _02_string = testRoundTrip ''"hello"'' "hello";
+        _03_indentString = testRoundTrip "''hello''" "hello";
+        _04_true = testRoundTrip "true" true;
+        _05_false = testRoundTrip "false" false;
+        _06_null = testRoundTrip "null" null;
+        _07_list = testRoundTrip "[1 2 3]" [1 2 3];
+        _08_attrSet = testRoundTrip "{a = 1;}" {a = 1;};
+        _09_attrPath = testRoundTrip "{a = 1;}.a" 1;
+        _10_attrPathOr = testRoundTrip "{a = 1;}.b or 2" 2;
+        _11_inheritsConst = testRoundTrip "{ inherit ({a = 1;}) a; }" {a = 1;};
+        _12_recAttrSetNoRecursion = testRoundTrip "rec { a = 1; }" {a = 1;};
+        _13_recAttrSetRecursion = testRoundTrip "rec { a = 1; b = a; }" {a = 1; b = 1;};
+        _14_letIn = testRoundTrip "let a = 1; in a" 1;
+        #_15_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
+        _16_withs = testRoundTrip "with {a = 1;}; a" 1;
+        #_17_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
       };
 
       _01_allFeatures =

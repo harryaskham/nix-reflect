@@ -474,17 +474,17 @@ rec {
               appendScope = this: newScope: this.bind (appendScope newScope);
 
               do = this: statement: mkDo Eval this [] statement;
-              pure = this: x: this.bind (Eval.pure x);
-              fmap = this: f: Eval A this.s (this.e.fmap f);
-              when = this: eval.monad.when;
-              unless = this: eval.monad.unless;
-              while = this: msg: log.while msg this;
+              pure = this: x: set_e_Right this x;
+              fmap = this: f: set_e this (this.e.fmap f);
+              when = this: cond: x: this.bind (_: eval.monad.when cond x);
+              unless = this: cond: x: this.bind (_: eval.monad.unless cond x);
+              while = this: msg: this.bind (_: log.while msg this);
               guard = this: cond: e: 
                 if cond 
                 then this.bind ({_}: _.pure unit) 
                 else (this.throws e);
 
-              foldM = this: foldM Eval;
+              foldM = this: f: initAcc: xs: this.bind (_: foldM Eval f initAcc xs);
 
               # sequenceM :: [Eval a] -> Eval [a]
               sequenceM = this:
@@ -496,7 +496,7 @@ rec {
                   [];
 
               # traverse :: (a -> Eval b) -> [a] -> Eval [b]
-              traverse = this: f: xs: this.sequenceM (map f xs);
+              traverse = this: f: xs: this.bind (_: this.sequenceM (map f xs));
 
               bind = this: statement: 
                 this.e.case {
@@ -511,7 +511,7 @@ rec {
                     mb.mapState (s: compose s this.s);
                 };
 
-              sq = this: b: this.bind ({_}: b);
+              sq = this: b: this.bind (_: b);
 
               # Set the value to the given error.
               throws = this:
