@@ -21,7 +21,9 @@ rec {
       ''); 
       true;
 
-  is = T: a: errors.tryBool (assertIs T a);
+  is = T: a: 
+    if T ? check then T.check a
+    else isbuiltinName T && typeOf a == T;
 
   tEq = a: b: pointerEqual a b || toString a == toString b;
 
@@ -312,7 +314,6 @@ rec {
     in 
       (acc.m.bind ({_, _a}: 
         let mb_ = normalised.f (acc.bindings // { inherit _ _a; });
-            #mb = if isDo mb_ then mb_.__setInitM _ else mb_;
             mb = if isDo mb_ then mb_.__setInitM acc.m else mb_;
         in 
           mb.bind ({_, _a}: _.pure {
@@ -420,101 +421,119 @@ rec {
             ${_pv_ e}
         '';
 
-        let this = {
-          __type = Eval A;
-          __isEval = true;
-          __toString = self: _b_ "Eval ${A} (${_ph_ self.e})";
-          inherit S E A s e;
+        let 
+          rebind = 
+            this: 
+            {A ? this.A, E ? Either Error A, s ? this.s, e ? this.e, __type ? Eval A} @ args: 
+              fix (this_: 
+                this 
+                // args 
+                // mapAttrs (_: f: f this_) this.__unbound
+              );
+          set_s = this: s: rebind this { inherit s; };
+          set_e = this: e: e.case {
+            Left = e: set_e_Left this e;
+            Right = a: set_e_Right this a;
+          };
+          set_e_Left = this: e_: rebind this (rec { A = Unit; E = Either Error Unit; e = E.Left e_;});
+          set_e_Right = this: a_: rebind this (rec { A = getT a_; E = Either Error A; e = E.Right a_;});
 
-          # modify :: (EvalState -> EvalState) -> Eval A -> Eval {}
-          modify = f: 
-            if isLeft this.e then this else
-            void (this.mapState (compose f));
+          this = {
+            __type = Eval A;
+            __isEval = true;
+            __toString = self: _b_ "Eval ${A} (${_ph_ self.e})";
 
-          set = state: 
-            if isLeft this.e then this else
-            void (this.setState (const state));
+            # TODO: Add s_ for trackign strict state only when running the actual computation
+            inherit S E A s e;
 
-          # Thunked to avoid infinite nesting - (m.get {}) is an (Eval EvalState)
-          get = {_, ...}: _.pure (this.s (S.mempty {}));
+            __unbound = {
+              # modify :: (EvalState -> EvalState) -> Eval A -> Eval {}
+              modify = this: f: 
+                if isLeft this.e then this else
+                void (this.mapState (compose f));
 
-          setState = s: Eval A s this.e;
-          mapState = f: Eval A (f this.s) this.e;
+              set = this: state: 
+                if isLeft this.e then this else
+                void (this.setState (const state));
 
-          mapEither = f: 
-            let e = f this.e;
-            in e.case {
-              Left = e: Eval Unit this.s (E.Left e);
-              Right = a: Eval (getT a) this.s (E.Right a);
+              # Thunked to avoid infinite nesting - (m.get {}) is an (Eval EvalState)
+              get = this: {_, ...}: _.pure (this.s (S.mempty {}));
+
+              setState = this: s: set_s this s;
+              mapState = this: f: this.setState (f this.s);
+
+              setEither = this: e: set_e this e;
+              mapEither = this: f: this.setEither (f this.e);
+              liftEither = this: e: if is EvalError e then this.throws e else this.pure e;
+
+              getScope = this: this.bind getScope;
+              setScope = this: newScope: this.bind (setScope newScope);
+              saveScope = this: f: this.bind (saveScope f);
+              modifyScope = this: f: this.bind (modifyScope f);
+              prependScope = this: newScope: this.bind (prependScope newScope);
+              appendScope = this: newScope: this.bind (appendScope newScope);
+
+              do = this: statement: mkDo Eval this [] statement;
+              pure = this: x: this.bind (Eval.pure x);
+              fmap = this: f: Eval A this.s (this.e.fmap f);
+              when = this: eval.monad.when;
+              unless = this: eval.monad.unless;
+              while = this: msg: log.while msg this;
+              guard = this: cond: e: 
+                if cond 
+                then this.bind ({_}: _.pure unit) 
+                else (this.throws e);
+
+              foldM = this: foldM Eval;
+
+              # sequenceM :: [Eval a] -> Eval [a]
+              sequenceM = this:
+                this.foldM
+                  (acc: elemM:
+                    Eval.do
+                      {elem = elemM;}
+                      ({_, elem}: _.pure (acc ++ [elem])))
+                  [];
+
+              # traverse :: (a -> Eval b) -> [a] -> Eval [b]
+              traverse = this: f: xs: this.sequenceM (map f xs);
+
+              bind = this: statement: 
+                this.e.case {
+                  Left = _: this;
+                  Right = a:
+                    let normalised = normaliseBindStatement Eval statement;
+                        mb = normalised.f {_ = this; _a = a;};
+                    in assert that (isMonadOf Eval mb) ''
+                      Eval.bind: non-Eval value returned of type ${getT mb}:
+                        ${_ph_ mb}
+                    '';
+                    mb.mapState (s: compose s this.s);
+                };
+
+              sq = this: b: this.bind ({_}: b);
+
+              # Set the value to the given error.
+              throws = this:
+                e: assert that (is Error e) ''Eval.throws: expected Either value ${Error} but got ${_p_ e} of type ${getT e}'';
+                this.setEither (E.Left e);
+
+              # Catch specific error types and handle them with a recovery function
+              # catch :: (EvalError -> Eval A) -> Eval A
+              catch = this: handler:
+                if isLeft this.e then 
+                  (set_e_Right this unit)
+                  .bind ({_, ...}: handler {inherit _; _e = this.e.left;})
+                else this;
+
+              # Returns (Either EvalError { a :: A, s :: S })
+              run = this: initialState: 
+                this.e.fmap (a: { s = this.s initialState; inherit a; });
+              run_ = this: _: this.e;
             };
-          liftEither = e: if is EvalError e then this.throws e else this.pure e;
-
-          getScope = this.bind getScope;
-          setScope = newScope: this.bind (setScope newScope);
-          saveScope = f: this.bind (saveScope f);
-          modifyScope = f: this.bind (modifyScope f);
-          prependScope = newScope: this.bind (prependScope newScope);
-          appendScope = newScope: this.bind (appendScope newScope);
-
-          do = statement: mkDo Eval this [] statement;
-          pure = x: this.bind (Eval.pure x);
-          fmap = f: Eval A this.s (this.e.fmap f);
-          when = eval.monad.when;
-          unless = eval.monad.unless;
-          while = msg: log.while msg this;
-          guard = cond: e: 
-            if cond 
-            then this.bind ({_}: _.pure unit) 
-            else (this.throws e);
-
-          foldM = foldM Eval;
-
-          # sequenceM :: [Eval a] -> Eval [a]
-          sequenceM =
-            this.foldM
-              (acc: elemM:
-                Eval.do
-                  {elem = elemM;}
-                  ({_, elem}: _.pure (acc ++ [elem])))
-              [];
-
-          # traverse :: (a -> Eval b) -> [a] -> Eval [b]
-          traverse = f: xs: this.sequenceM (map f xs);
-
-          bind = statement: 
-            this.e.case {
-              Left = _: this;
-              Right = a:
-                let normalised = normaliseBindStatement Eval statement;
-                    mb = normalised.f {_ = this; _a = a;};
-                in assert that (isMonadOf Eval mb) ''
-                  Eval.bind: non-Eval value returned of type ${getT mb}:
-                    ${_ph_ mb}
-                '';
-                mb.mapState (s: compose s this.s);
-            };
-
-          sq = b: this.bind ({_}: b);
-
-          # Set the value to the given error.
-          throws =
-            e: assert that (is Error e) ''Eval.throws: expected Either value ${Error} but got ${_p_ e} of type ${getT e}'';
-            this.mapEither (const (E.Left e));
-
-          # Catch specific error types and handle them with a recovery function
-          # catch :: (EvalError -> Eval A) -> Eval A
-          catch = handler:
-            if isLeft this.e then 
-              (this.mapEither (const (E.Right unit)))
-              .bind ({_, ...}: handler {inherit _; _e = this.e.left;})
-            else this;
-
-          # Returns (Either EvalError { a :: A, s :: S })
-          run = initialState: 
-            this.e.fmap (a: { s = this.s initialState; inherit a; });
-          run_ = _: this.e;
-        };
-        in this;
+          };
+        # Bind 'this'
+        in rebind this {};
     };
   };
 
