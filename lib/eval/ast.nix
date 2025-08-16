@@ -182,7 +182,7 @@ in rec {
     Eval.do
       (while "evaluating 'bindings' node-list recursively, iteration ${toString i}")
       {state = get;}
-      {attrsList = traverse evalRecBinding bindings;}
+      {attrsList = {_, ...} @ ctx: _.traverse (binding: evalRecBinding binding ctx) bindings;}
       {attrs = {_, attrsList}: _.pure (listToAttrs (concatLists attrsList));}
       ({_, attrs, state, ...}: _.set (EvalState (attrs // state.scope)))
       ({_, attrsList, attrs, state, ...}: _.guard (i <= size bindings) (RuntimeError ''
