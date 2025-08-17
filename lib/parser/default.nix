@@ -154,9 +154,8 @@ let this = rec {
   compareAST =
     precompose [
       (flattenWith {
-        f = path: _: _: joinSep "." path;
         #stop = _: k: _: k == "__args";
-        filter = path: k: v: k == "__args";
+        #filter = path: k: v: k == "__args";
         deep = true;
       })
       (filterAttrs (k: _: k != "__args" && hasInfix "__args" k))
