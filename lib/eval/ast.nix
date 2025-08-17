@@ -615,13 +615,12 @@ in rec {
     evalAST = {
 
       _000_failing = solo {
-        #_15_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         _1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
         _2_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         _3_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
       };
 
-      _00_smoke = solo {
+      _00_smoke = {
         _00_int = testRoundTrip "1" 1;
         _01_float = testRoundTrip "1.0" 1.0;
         _02_string = testRoundTrip ''"hello"'' "hello";
