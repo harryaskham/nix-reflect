@@ -989,36 +989,26 @@ rec {
                   let c = (a.sq b).bind ({_}: _.bind _.get);
                   in expectRun {} c {x = 1; y = 2;} (EvalState {x = 1; y = 2;});
               };
-          };
-        };
 
-      # Minimal tests for foldM, traverse, sequenceM
-      monadCombinators = 
-        let
-          expectRun = s: a: s': a': 
-            expect.noLambdasEq
-              (a.run (EvalState s)).right
-              { s = EvalState s'; a = a'; };
-        in {
-          
-          foldM = {
-            empty = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 []) {} 0;
-            single = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 [5]) {} 5;
-            multiple = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 [1 2 3]) {} 6;
-          };
+              foldM = {
+                empty = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 []) {} 0;
+                single = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 [5]) {} 5;
+                multiple = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 [1 2 3]) {} 6;
+              };
 
-          traverse = {
-            empty = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
-            single = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
-            multiple = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
-          };
+              traverse = {
+                empty = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
+                single = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
+                multiple = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
+              };
 
-          sequenceM = {
-            empty = expectRun {} ((Eval.pure unit).sequenceM []) {} [];
-            single = expectRun {} ((Eval.pure unit).sequenceM [({_, ...}: _.pure 42)]) {} [42];
-            multiple = expectRun {} ((Eval.pure unit).sequenceM [
-              (Eval.pure 1) (Eval.pure 2) (Eval.pure 3)
-            ]) {} [1 2 3];
+              sequenceM = {
+                empty = expectRun {} ((Eval.pure unit).sequenceM []) {} [];
+                single = expectRun {} ((Eval.pure unit).sequenceM [({_, ...}: _.pure 42)]) {} [42];
+                multiple = expectRun {} ((Eval.pure unit).sequenceM [
+                  (Eval.pure 1) (Eval.pure 2) (Eval.pure 3)
+                ]) {} [1 2 3];
+              };
           };
         };
 
