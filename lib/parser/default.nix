@@ -4,22 +4,15 @@
   ...
 }:
 
-# TODO:
-# - import
-# - let bindings need to support inherit
-# - Hook into existing parser test suites for Nix
-
 let
-  eval = collective-lib.eval;
   typed = collective-lib.typed;
   log = collective-lib.log;
-  parsecLib = nix-parsec;
 in 
   with typed;
+  assert (assertMsg (builtins.hasAttr "lib" nix-parsec) "nix-parsec.lib.parsec is not available: ${_p_ nix-parsec}");
 let this = rec {
 
-  parsec = parsecLib.parsec;
-  lexer = parsecLib.lexer;
+  inherit (nix-parsec.lib) parsec lexer;
 
   sortOrder = mergeAttrsList (imap0 (i: k: { ${k} = i; }) [
     "name"
@@ -259,11 +252,11 @@ let this = rec {
 
   p = with parsec; rec {
     # Whitespace and comments
-    ws = matching "[ \t\n\r]+";
-    lineComment = lexer.skipLineComment "#";
-    blockComment = lexer.skipBlockComment "/*" "*/";
-    spaces = lexer.space ws lineComment blockComment;
-    spaced = x: skipThen spaces (thenSkip x spaces);
+    ws = parsec.annotateContext "whitespace" (matching "[ \t\n\r]+");
+    lineComment = parsec.annotateContext "lineComment" (lexer.skipLineComment "#");
+    blockComment = parsec.annotateContext "blockComment" (lexer.skipBlockComment "/*" "*/");
+    spaces = parsec.annotateContext "spaces" (lexer.space ws lineComment blockComment);
+    spaced = x: parsec.annotateContext "spaced" (skipThen spaces (thenSkip x spaces));
     lex = lexer.lexeme spaces;
     sym = lexer.symbol spaces;
     mkSymParser = s: mkParser "${s}-sym" (string s);
@@ -416,14 +409,13 @@ let this = rec {
       sepBy atom spaces)));
 
     # Attribute paths
+    attrPathComponent = mkParser "attrPathComponent" (choice [
+      identifier
+      normalString
+      interpolation
+    ]);
     attrPath = 
-      let
-        attrPathComponent = mkParser "attrPathComponent" (choice [
-          identifier
-          normalString
-          interpolation
-        ]);
-      in mkParser "attrPath" (fmap N.attrPath (sepBy1 attrPathComponent dot));
+      mkParser "attrPath" (fmap N.attrPath (sepBy1 attrPathComponent dot));
 
     # Inherit expressions
     inheritParser = 
@@ -440,7 +432,7 @@ let this = rec {
           pure (N.inheritExpr (maybeHead from) attrs)))))));
 
     assignment = mkParser "assignment" (
-      bind identifier (name:
+      bind attrPathComponent (name:
       bind (mkSymParser "=") (_:
       bind expr (value:
       bind semi (_:
@@ -632,6 +624,23 @@ let this = rec {
   parseWith = p: s: parsec.runParser p s;
   parseExpr = parseWith p.exprEof;
 
+  printParseError = prefix: isFirst: isLast: e:
+    let pre = if isLast then "└" else if isFirst then "├" else "├";
+    in joinOptionalLines [
+      ''${prefix}  ${pre} ${e.context}${optionalString (e ? msg) " | @${toString e.offset} | ${e.msg}"}''
+      (optionalString (e ? error) (flip dispatch e.error {
+        string = s: "${prefix}  └ ${s}";
+        set = xs:
+          concatMapLines (l: "${prefix} ${l}") (printParseError " ${if isLast then " " else "|"}" true true xs);
+        list = xs:
+          joinOptionalLines
+            (imap0 
+              (i: x:
+                concatMapLines (l: "${prefix} ${l}") (printParseError "  " (i == 0) (i == size xs - 1) x))
+              xs);
+      }))
+    ];
+
   # Parse a string down to an AST, or leave an AST untouched.
   # Throw if not a string or AST, or if the parse fails.
   parse = dispatch {
@@ -644,7 +653,7 @@ let this = rec {
             ${s}
 
           Result:
-            ${_pd_ 10 result}
+            ${_h_ (printParseError "" true true result.value)}
       '';
     set = node: 
       assert that (isAST node) ''
@@ -846,8 +855,8 @@ let this = rec {
           indentString = expectSuccess "''hello world''" (withExpectedSrc "''hello world''" (N.indentString "hello world"));
           indentStringWithEscapes = 
             expectSuccess 
-              "''a '''hello ''${toString 123}\\nworld'''.''"
-              (withExpectedSrc "''a '''hello ''${toString 123}\\nworld'''.''" (N.indentString "a '''hello ''${toString 123}\\nworld'''."));
+              "''a '''hello ''\${toString 123}\\nworld'''.''"
+              (N.indentString "a '''hello ''\${toString 123}\\nworld'''.");
 
           mixedExpression = let result = parseExpr ''{ a = [1 2]; b = "hello"; }.a''; in
             expect.eq result.type "success";

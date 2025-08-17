@@ -12,7 +12,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        reflectLib = import ./lib { inherit pkgs inputs; };
+        reflectLib = import ./lib { inherit inputs pkgs; };
       in {
         lib = reflectLib;
         devShells.default = pkgs.mkShell { };  
