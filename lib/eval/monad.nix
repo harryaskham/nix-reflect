@@ -496,7 +496,7 @@ rec {
                   [];
 
               # traverse :: (a -> Eval b) -> [a] -> Eval [b]
-              traverse = this: f: xs: this.bind (_: this.sequenceM (map f xs));
+              traverse = this: f: xs: this.sequenceM (map f xs);
 
               bind = this: statement: 
                 this.e.case {
@@ -869,6 +869,18 @@ rec {
                     getScope
                   ));
                 in expectRun {} m {x = 1;} {x = 1; y = 2;};
+
+              nestedSaveScope =
+                let m = Eval.do
+                  (setScope {x = 1;})
+                  (saveScope ({_}: _.do
+                    (appendScope {y = 2;})
+                    (saveScope ({_}: _.do
+                      (appendScope {z = 3;})
+                      getScope
+                    ))
+                  ));
+                in expectRun {} m {x = 1;} {x = 1; y = 2; z = 3;};
 
               differentBlocks = {
 
