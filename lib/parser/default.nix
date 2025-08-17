@@ -150,7 +150,17 @@ let this = rec {
   hiddenParams = [ "__type" "__isAST" "__toString" "__args" "fmap" "mapNode" "__src" "__offset"
                    "name" "value" "param" "ellipsis" "op" "op0" "op1" "rec" ];
 
-  compareAST = deepConcatMap (k: v: if k == "__args" then { ${k} = compareAST v; } else {});
+  # Pull out all nested __args in DFS order
+  compareAST =
+    precompose [
+      (flattenWith {
+        f = path: _: _: joinSep "." path;
+        #stop = _: k: _: k == "__args";
+        filter = path: k: v: k == "__args";
+        deep = true;
+      })
+      (filterAttrs (k: _: k != "__args" && hasInfix "__args" k))
+    ];
 
   AST = {
     __toString = self: "AST";
@@ -180,6 +190,7 @@ let this = rec {
     string = s: AST "string" { value = s; };
     indentString = s: AST "indentString" { value = s; };
     interpolation = body: AST "interpolation" { body = body; };
+    stringPieces = pieces: AST "stringPieces" { inherit pieces; };
     path = p: AST "path" { value = p; };
     anglePath = p: AST "anglePath" { value = p; };
     bool = b: AST "bool" { value = b; };
@@ -332,24 +343,53 @@ let this = rec {
     # The newline, carriage return, and tab characters can be written as \n, \r and \t, respectively.
     
     
-    # Complete string parser with quotes
+    # Complete string parser with quotes - simplified approach
     normalString = 
       let
-        # Custom parser that can handle Nix string escape sequences properly
-        nixStringContent = fmap (builtins.concatStringsSep "") (many (choice [
-          # Handle escape sequences first (order matters)
-          (bind (string "\\\"") (_: pure "\""))        # \" → "
-          (bind (string "\\\\") (_: pure "\\"))        # \\ → \
-          (bind (string "\\\${") (_: pure ("$" + "{")))    # \${ → ${
-          (bind (string "\\n") (_: pure "\n"))         # \n → newline
-          (bind (string "\\r") (_: pure "\r"))         # \r → carriage return
-          (bind (string "\\t") (_: pure "\t"))         # \t → tab
-          # Handle any character that's not a quote or backslash
-          (fmap (x: builtins.head x) (matching "[^\"\\\\]"))
+        # Parse string content as a list of either characters or interpolations
+        stringContent = fmap concatStringParts (many (choice [
+          # Interpolation: ${expr}
+          (bind (string "\${") (_:
+          bind expr (body:
+          bind (string "}") (_:
+          pure (N.interpolation body)))))
+          
+          # Literal string characters
+          (choice [
+            # Handle escape sequences - return the actual character
+            (bind (string "\\\"") (_: pure "\""))        # \" → "
+            (bind (string "\\\\") (_: pure "\\"))        # \\ → \
+            (bind (string "\\\${") (_: pure "\${"))      # \${ → literal ${
+            (bind (string "\\n") (_: pure "\n"))         # \n → newline
+            (bind (string "\\r") (_: pure "\r"))         # \r → carriage return
+            (bind (string "\\t") (_: pure "\t"))         # \t → tab
+            # Any single character except quote or backslash
+            (fmap (x: builtins.head x) (matching "[^\"\\\\]"))
+          ])
         ]));
-        nixStringLit = between (string ''"'') (string ''"'') nixStringContent;
+        
+        # Concatenate consecutive strings and preserve interpolations
+        concatStringParts = parts:
+          let
+            collectStringChars = acc: part:
+              if builtins.isString part
+              then { chars = acc.chars ++ [part]; parts = acc.parts; }
+              else 
+                let stringContent = builtins.concatStringsSep "" acc.chars;
+                    newParts = if stringContent == "" then acc.parts else acc.parts ++ [(N.string stringContent)];
+                in { chars = []; parts = newParts ++ [part]; };
+            
+            result = builtins.foldl' collectStringChars { chars = []; parts = []; } parts;
+            finalStringContent = builtins.concatStringsSep "" result.chars;
+            finalParts = if finalStringContent == "" then result.parts else result.parts ++ [(N.string finalStringContent)];
+          in
+            if builtins.length finalParts == 0 then N.string ""  # Empty string
+            else if builtins.length finalParts == 1 then builtins.head finalParts  # Single piece
+            else N.stringPieces finalParts;  # Multiple pieces
+        
+        nixStringLit = between (string ''"'') (string ''"'') stringContent;
       in 
-        mkParser "normalString" (fmap N.string nixStringLit);
+        mkParser "normalString" nixStringLit;
 
     # The following must be escaped to represent them in an indented string:
     # 
@@ -746,6 +786,9 @@ let this = rec {
           singleAttr =
             expectSuccess "{ a = 1; }"
             (N.attrs [(N.assignment (N.identifier "a") (N.int 1))] false);
+          singleStringAttr =
+            expectSuccess "{ \"a\" = 1; }"
+            (N.attrs [(N.assignment (N.string "a") (N.int 1))] false);
           multipleAttrs = expectSuccess "{ a = 1; b = 2; }"
             (withExpectedSrc "{ a = 1; b = 2; }" (N.attrs [
               (withExpectedSrc "a = 1; " (N.assignment (withExpectedSrc "a" (N.identifier "a")) (withExpectedSrc "1" (N.int 1))))
@@ -875,11 +918,20 @@ let this = rec {
           attrPath =
             expectSuccess
               "xs.\"\${\"x\"}\""
-              (N.binaryOp (N.identifier "xs") "." (N.attrPath [(N.string "\"\${\"x\"}\"")]));
+              (N.binaryOp (N.identifier "xs") "." (N.attrPath [(N.stringPieces [(N.interpolation (N.string "\"x\""))])]));
           assignment =
             expectSuccess
               "{ \"\${\"x\"}\" = 123; }"
-              (N.attrs [(N.assignment (N.attrPath [(N.string "\"\${\"x\"}\"")]) (N.int 123))] false);
+              (N.attrs [(N.assignment (N.attrPath [(N.stringPieces [(N.interpolation (N.string "\"x\""))])]) (N.int 123))] false);
+          # Test escaped $ - should be literal string, not interpolation
+          escapedString =
+            expectSuccess
+              "\"\\\${\\\"x\\\"}\""
+              (N.string "\${\"x\"}");
+          escapedIndentString =
+            expectSuccess
+              "''''\${\"x\"}''"
+              (N.indentString "\${\"x\"}");
         };
 
         selfParsing = {
