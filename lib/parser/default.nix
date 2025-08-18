@@ -43,13 +43,7 @@ let this = rec {
     "body"
   ]);
 
-  sortNodeBlocks = sortOn (x: sortOrder.${x.name} or 999);
-
-  bodyAttrs = xs:
-    sortNodeBlocks
-      (mapAttrsToList
-        (k: v: { name = k; body = v; })
-        (filterNodeBody xs));
+  sortNodeBlocks = sortOn (x: if isString (x.name or null) && sortOrder ? ${x.name} then sortOrder.${x.name} else 999);
 
   filterNodeBody = filterAttrs (k: v: !(elem k hiddenParams) && safeNonEmpty v);
 
@@ -96,39 +90,92 @@ let this = rec {
     compose
       sortNodeBlocks
       (dispatch.def.on signatureAST (x: [{ body = _p_ x; }]) {
-        AST = node: [{ name = printASTName node; body = node.__args; }];
-        set = bodyAttrs;
-        list = imap0 (i: v: { name = toString i; body = v; });
-        string = body: [{ inherit body; }];
+        AST = node: [{ name = printASTName node; body = node.__args; box = boxes.single; }];
+        set = xs_:
+          let xs = filterNodeBody xs_;
+              maxKeyLen = maximum (map size (attrNames xs));
+          in sortNodeBlocks
+            (mapAttrsToList
+              (k: v: 
+                let vS = _p_ v;
+                #in if lineCount vS == 1 then { name = "${k} = ${vS}"; body = {}; box = boxes.single; }
+                in if lineCount vS == 1 then { name = "├ ${k} = ${vS}"; body = {}; box = (boxes.single // { prefixBlock = false; }); }
+                else { body = v; box = boxes.setEl maxKeyLen k; })
+              xs);
+
+        list = xs: 
+          imap0 
+            (i: v: { body = v; box = boxes.listEl (if size xs < 10 then 1 else 2) i; })
+            xs;
+        string = body: [{ inherit body; box = boxes.single; }];
       });
 
-  box = rec {
-    space = "  ";
-    vline = "│ ";
-    knee = "└─";
-    tee = "├─";
+  boxes = {
+    single = {
+      space = "  ";
+      vline = "│ ";
+      hline = "─";
+      knee = "└─";
+      tee = "├─";
+      prefixBlock = false;
+    };
+    double = {
+      space = "  ";
+      vline = "║ ";
+      hline = "═";
+      knee = "╚═";
+      tee = "╠═";
+      prefixBlock = true;
+    };
+    setEl = maxKeyLen: k: 
+      let kSpace = spaces maxKeyLen;
+          kSpaced = "${spaces (maxKeyLen - size k)}${k}";
+      in {
+        space = " ${kSpace} │";
+        vline = " ${kSpace} │";
+        hline = "═";
+        knee = " ${kSpaced} ╪";
+        tee = " ${kSpaced} ╪";
+        prefixBlock = true;
+      };
+    listEl = maxI: i_: 
+      let i = toString i_;
+          iSpace = spaces maxI;
+          iSpaced = "${spaces (maxI - size i)}${i}";
+      in {
+        space = "${iSpace}┆";
+        vline = "${iSpace}┆";
+        hline = "═";
+        knee = "${iSpaced}┆";
+        tee = "${iSpaced}┆";
+        prefixBlock = true;
+      };
   };
 
-  printNode = isRoot: prefix: node:
-    with box;
+  # TODO: To Tree-printing library
+  printNode = sparse: isRoot: prefix: node:
     log.while "printing AST node ${node.nodeType or "<unnamed>"}" (
     let blocks = toNodeBlocks node;
         nBlocks = size blocks;
-    in _ls_ (ifor blocks (blockIx: { name ? null, body }:
+    in _ls_ (ifor blocks (blockIx: { name ? null, body, box }:
+      with box;
       let 
-        lines = (optionals (name != null) [name]) ++ (splitLines (printAST_ false prefix body));
+        maybeNonEmpties = if sparse then id else nonEmpties;
+        lines = maybeNonEmpties ((optionals (name != null) [name]) ++ (splitLines (printAST_ sparse false prefix body)));
         nLines = size lines;
-        blockPrefix = 
+        blockPrefix =
           if isRoot then {
             first = "\n";
             mid = "";
             last = "";
           } else if blockIx < nBlocks - 1 then {
-            first = if nLines <= 1 then knee else tee;
+            first = 
+              if prefixBlock then if nLines <= 1 then knee else tee
+              else "";
             mid = vline;
             last = vline;
           } else {
-            first = knee;
+            first = if prefixBlock then knee else "";
             mid = space;
             last = space;
           };
@@ -139,13 +186,14 @@ let this = rec {
       in _ls_ (ifor lines (i: l: "${prefix}${space}${linePrefix i}${l}"))))
     );
 
-  printAST = printAST_ true "";
-  printAST_ = isRoot: prefix: 
-    with box;
+  printAST = printAST_ true true "";
+  printASTCompact = printAST_ false true "";
+  printAST_ = sparse: isRoot: prefix: 
+    with boxes.single;
     dispatch.def.on signatureAST (x: "${prefix}${space}${knee}${_p_ x}") {
-      AST = printNode isRoot prefix;
-      set = printNode isRoot prefix;
-      list = printNode isRoot prefix;
+      AST = printNode sparse isRoot prefix;
+      set = printNode sparse isRoot prefix;
+      list = printNode sparse isRoot prefix;
       string = s: "${prefix}${space}${s}";
     };
 
@@ -164,7 +212,7 @@ let this = rec {
     __functor = self: nodeType: args: {
       __type = AST;
       __isAST = true;
-      __toString = self: printAST self;
+      __toString = self: printASTCompact self;
       __args = args;
       inherit nodeType;
       __src = args.__src or null;
