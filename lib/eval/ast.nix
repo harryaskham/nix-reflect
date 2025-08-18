@@ -59,7 +59,7 @@ in rec {
           int = evalLiteral node;
           float = evalLiteral node;
           string = evalLiteral node;
-          indentString = evalLiteral node;
+          stringPieces = evalStringPieces node;
           path = evalPath node;
           anglePath = evalAnglePath node;
           list = evalList node;
@@ -572,6 +572,12 @@ in rec {
       ''))
       (pure (import path));
 
+  evalStringPieces = node: {_, ...}:
+    _.do
+      (while "evaluating 'stringPieces' node")
+      {pieces = traverse evalNodeM node.pieces;}
+      ({_, pieces}: _.pure (join pieces));
+
   evalPath = node: {_, ...}:
     _.do
       (while "evaluating 'path' node")
@@ -624,13 +630,13 @@ in rec {
     # Tests for evalAST round-trip property
     evalAST = {
 
-      _000_failing = solo {
+      _000_failing = {
         _1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
         _2_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         _3_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
       };
 
-      _00_smoke = {
+      _00_smoke = solo {
         _00_int = testRoundTrip "1" 1;
         _01_float = testRoundTrip "1.0" 1.0;
         _02_string = testRoundTrip ''"hello"'' "hello";
