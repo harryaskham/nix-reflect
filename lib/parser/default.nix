@@ -914,15 +914,15 @@ let this = rec {
           string =
             expectSuccess
               "\"\${\"x\"}\""
-              (withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces [(withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.string "\"x\""))))]));
+              (withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces [(N.interpolation (withExpectedSrc "\"x\"" (N.string "x")))]));
           attrPath =
             expectSuccess
               "xs.\"\${\"x\"}\""
-              (withExpectedSrc "xs.\"\${\"x\"}\"" (N.binaryOp (withExpectedSrc "xs" (N.identifier "xs")) "." (withExpectedSrc "\"\${\"x\"}\"" (N.attrPath [(withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces [(withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.string "\"x\""))))]))]))));
+              (withExpectedSrc "xs.\"\${\"x\"}\"" (N.binaryOp (withExpectedSrc "xs" (N.identifier "xs")) "." (withExpectedSrc "\"\${\"x\"}\"" (N.attrPath [(withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces [(N.interpolation (withExpectedSrc "\"x\"" (N.string "x")))]))]))));
           assignment =
             expectSuccess
               "{ \"\${\"x\"}\" = 123; }"
-              (withExpectedSrc "{ \"\${\"x\"}\" = 123; }" (N.attrs [(withExpectedSrc "\"\${\"x\"}\" = 123; " (N.assignment (withExpectedSrc "\"\${\"x\"}\" " (N.stringPieces [(withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.string "\"x\""))))])) (withExpectedSrc "123" (N.int 123))))] false));
+              (withExpectedSrc "{ \"\${\"x\"}\" = 123; }" (N.attrs [(withExpectedSrc "\"\${\"x\"}\" = 123; " (N.assignment (withExpectedSrc "\"\${\"x\"}\" " (N.stringPieces [(N.interpolation (withExpectedSrc "\"x\"" (N.string "x")))])) (withExpectedSrc "123" (N.int 123))))] false));
           # Test escaped $ - should be literal string, not interpolation
           escapedString =
             expectSuccess
@@ -931,7 +931,7 @@ let this = rec {
           escapedIndentString =
             expectSuccess
               "''''\${\"x\"}''"
-              (withExpectedSrc "''''\${\"x\"}''" (N.indentString "\${\"x\"}"));
+              (withExpectedSrc "''''\${\"x\"}''" (N.indentString "''\${\"x\"}"));
         };
 
         selfParsing = {
