@@ -153,12 +153,8 @@ let this = rec {
   # Pull out all nested __args in DFS order
   compareAST =
     precompose [
-      (flattenWith {
-        #stop = _: k: _: k == "__args";
-        #filter = path: k: v: k == "__args";
-        deep = true;
-      })
-      (filterAttrs (k: _: k != "__args" && hasInfix "__args" k))
+      flattenDeep
+      (filterAttrs (k: v: !(isFunction v) && k != "__args" && hasInfix "__args" k))
     ];
 
   AST = {
