@@ -368,7 +368,7 @@ let this = rec {
 
             # Handle escape sequences - return the actual character or ${ for escaped interpolation
             (bind (string "\\\${") (_: pure "\${"))
-            (bind (string "\\") (_: bind anyChar (c: pure (builtins.fromJSON "\"\\${c}\""))))
+            (bind (string "\\") (_: bind (fmap (x: builtins.head x) (matching ".")) (c: pure (builtins.fromJSON "\"\\${c}\""))))
 
             # Any single character except quote or backslash
             anyContentChar
@@ -426,7 +426,7 @@ let this = rec {
             bind (choice [
               (bind (string "''") (_: pure "''"))
               (bind (string "'\${") (_: pure "\${"))
-              (bind (anyCharBut "'") (c: pure "'${c}"))
+              (bind (fmap (x: builtins.head x) (matching "[^']")) (c: pure "'${c}"))
             ])))
 
             # Any single character except quote or backslash
@@ -790,7 +790,7 @@ let this = rec {
           multipleElements = expectSuccess "[1 2 3]" 
             (withExpectedSrc "[1 2 3]" (N.list [(withExpectedSrc "1 " (N.int 1)) (withExpectedSrc "2 " (N.int 2)) (withExpectedSrc "3" (N.int 3))]));
           mixed = expectSuccess ''[1 "hello" true]''
-            (withExpectedSrc ''[1 "hello" true]'' (N.list [(withExpectedSrc "1 " (N.int 1)) (withExpectedSrc "\"hello\" " (N.string "hello")) (withExpectedSrc "true" (N.identifier "true"))]));
+            (withExpectedSrc ''[1 "hello" true]'' (N.list [(withExpectedSrc "1 " (N.int 1)) (withExpectedSrc "\"hello\" " (N.stringPieces false [(N.string "hello")])) (withExpectedSrc "true" (N.identifier "true"))]));
         };
 
         attrs = {
@@ -928,7 +928,7 @@ let this = rec {
             expectSuccess 
               "''a '''hello ''\${toString 123}\\nworld'''.''"
               (withExpectedSrc "''a '''hello ''\${toString 123}\\nworld'''.''"
-               (N.stringPieces true [(N.string "a ''hello \${toString 123}\\nworld''.")]));
+               (N.stringPieces true [(N.string "a '''hello ''\${toString 123}\\nworld'''.")]));
 
           mixedExpression = let result = parseExpr ''{ a = [1 2]; b = "hello"; }.a''; in
             expect.eq result.type "success";
@@ -939,16 +939,16 @@ let this = rec {
             expectSuccess
               "\"\${\"x\"}\""
               (withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces false [
-                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+                (withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")]))))
               ]));
 
           string.mixed =
             expectSuccess
               "\"hello \${\"x\"} world\""
               (withExpectedSrc "\"hello \${\"x\"} world\"" (N.stringPieces false [
-                (N.string "hello ")
-                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
-                (N.string " world")
+                (N.string "hello")
+                (withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")]))))
+                (N.string "world")
               ]));
 
           attrPath =
@@ -958,7 +958,7 @@ let this = rec {
                 (N.binaryOp (withExpectedSrc "xs" (N.identifier "xs")) "." 
                   (withExpectedSrc "\"\${\"x\"}\"" (N.attrPath [
                     (withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces false [
-                      (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+                      (withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")]))))
                     ]))
                   ]))));
 
@@ -969,7 +969,7 @@ let this = rec {
                 (withExpectedSrc "\"\${\"x\"}\" = 123; " 
                   (N.assignment 
                     (withExpectedSrc "\"\${\"x\"}\" "
-                      (N.stringPieces false [ (N.interpolation (withExpectedSrc "\"x\"" (N.string "x"))) ]))
+                      (N.stringPieces false [ (withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))) ]))
                     (withExpectedSrc "123" (N.int 123))
                   ))
               ] false));
@@ -983,8 +983,7 @@ let this = rec {
             expectSuccess
               "\"\\\\\${\\\"x\\\"}\""
               (withExpectedSrc "\"\\\\\${\\\"x\\\"}\"" (N.stringPieces false [
-                (N.string "\\")
-                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+                (N.string "\\\${\"x\"}")
               ]));
 
           escapedIndentString =
@@ -999,7 +998,7 @@ let this = rec {
               "'''''\${\"x\"}''"
               (withExpectedSrc "'''''\${\"x\"}''" (N.stringPieces true [
                 (N.string "'")
-                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+                (withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")]))))
               ]));
         };
 
