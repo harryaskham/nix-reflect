@@ -59,9 +59,11 @@ let this = rec {
     int = "ℤ ${toString node.value}";
     float = "ℝ ${toString node.value}";
     bool = "𝔹 ${boolToString node.value}";
-    string = "\"${node.value}\"";
-    indentString = "''${node.value}''";
-    interpolation = "<\${_}>";
+    string = node.value;
+    stringPieces = 
+      if node.indented then "''${join (map printASTName node.pieces)}''"
+      else "\"${join (map printASTName node.pieces)}\"";
+    interpolation = "\${_}";
     path = node.value;
     anglePath = "<${node.value}>";
     identifier = "`${node.name}`";
@@ -183,9 +185,8 @@ let this = rec {
     int = i: AST "int" { value = i; };
     float = f: AST "float" { value = f; };
     string = s: AST "string" { value = s; };
-    indentString = s: AST "indentString" { value = s; };
     interpolation = body: AST "interpolation" { body = body; };
-    stringPieces = pieces: AST "stringPieces" { inherit pieces; };
+    stringPieces = indented: pieces: AST "stringPieces" { inherit indented pieces; };
     path = p: AST "path" { value = p; };
     anglePath = p: AST "anglePath" { value = p; };
     bool = b: AST "bool" { value = b; };
@@ -337,53 +338,41 @@ let this = rec {
     # "\\${"
     # The newline, carriage return, and tab characters can be written as \n, \r and \t, respectively.
     
+    # Convert list of string parts to appropriate AST node
+    collectStringParts = indented: parts:
+      let
+        # Collect consecutive string characters
+        collectStringChars = acc: part:
+          if builtins.isString part
+          then { chars = acc.chars ++ [part]; parts = acc.parts; }
+          else 
+            let stringContent = builtins.concatStringsSep "" acc.chars;
+                newParts = if stringContent == "" then acc.parts else acc.parts ++ [(N.string stringContent)];
+            in { chars = []; parts = newParts ++ [part]; };
+        
+        result = builtins.foldl' collectStringChars { chars = []; parts = []; } parts;
+        finalStringContent = builtins.concatStringsSep "" result.chars;
+        finalParts = if finalStringContent == "" then result.parts else result.parts ++ [(N.string finalStringContent)];
+      in
+        N.stringPieces indented finalParts;
     
     # Complete string parser with quotes - simplified approach
     normalString = 
       let
         # Parse string content as a list of either characters or interpolations
-        stringContent = fmap concatStringParts (many (choice [
-          # Interpolation: ${expr}
-          (bind (string "\${") (_:
-          bind expr (body:
-          bind (string "}") (_:
-          pure (N.interpolation body)))))
-          
-          # Literal string characters
-          (choice [
-            # Handle escape sequences - return the actual character
-            (bind (string "\\\"") (_: pure "\""))        # \" → "
-            (bind (string "\\\\") (_: pure "\\"))        # \\ → \
-            (bind (string "\\\${") (_: pure "\${"))      # \${ → literal ${
-            (bind (string "\\n") (_: pure "\n"))         # \n → newline
-            (bind (string "\\r") (_: pure "\r"))         # \r → carriage return
-            (bind (string "\\t") (_: pure "\t"))         # \t → tab
+        stringContent = 
+          let anyContentChar = fmap (x: builtins.head x) (matching "[^\"\\\\]");
+          in fmap (collectStringParts false) (many (choice [
+            # Interpolation: ${expr}
+            interpolation
+
+            # Handle escape sequences - return the actual character or ${ for escaped interpolation
+            (bind (string "\\\${") (_: pure "\${"))
+            (bind (string "\\") (_: bind anyChar (c: pure (builtins.fromJSON "\"\\${c}\""))))
+
             # Any single character except quote or backslash
-            (fmap (x: builtins.head x) (matching "[^\"\\\\]"))
-          ])
-        ]));
-        
-        # Convert list of string parts to appropriate AST node
-        concatStringParts = parts:
-          let
-            # Collect consecutive string characters
-            collectStringChars = acc: part:
-              if builtins.isString part
-              then { chars = acc.chars ++ [part]; parts = acc.parts; }
-              else 
-                let stringContent = builtins.concatStringsSep "" acc.chars;
-                    newParts = if stringContent == "" then acc.parts else acc.parts ++ [(N.string stringContent)];
-                in { chars = []; parts = newParts ++ [part]; };
-            
-            result = builtins.foldl' collectStringChars { chars = []; parts = []; } parts;
-            finalStringContent = builtins.concatStringsSep "" result.chars;
-            finalParts = if finalStringContent == "" then result.parts else result.parts ++ [(N.string finalStringContent)];
-          in
-            # Always preserve structure - don't concatenate
-            if builtins.length finalParts == 0 then N.string ""  # Empty string
-            else if builtins.length finalParts == 1 && (builtins.head finalParts).nodeType == "string"
-            then builtins.head finalParts  # Single simple string
-            else N.stringPieces finalParts;  # Preserve as separate pieces
+            anyContentChar
+          ]));
         
         nixStringLit = between (string ''"'') (string ''"'') stringContent;
       in 
@@ -423,14 +412,39 @@ let this = rec {
     # Note
     # 
     # This differs from the syntax for escaping a dollar-curly within double quotes ("\\${"). Be aware of which one is needed at a given moment.
-    indentString = mkParser "indentString" (fmap N.indentString (fmap (matches: 
-      let content = head matches; 
-          len = builtins.stringLength content;
-      in builtins.substring 2 (len - 4) content
-    ) (matching "''(([^']|'[^']|''['$\\\\])*)''")));
+    indentString = 
+      let
+        # Parse string content as a list of either characters or interpolations
+        stringContent = 
+          let anyContentChar = fmap (x: builtins.head x) (matching "[^']");
+          in fmap (collectStringParts true) (many (choice [
+            interpolation
+
+            # Handle escape sequences - return the actual character or ${ for escaped interpolation
+            # Permit anything except '', with ''' -> '' and ''${ -> ${
+            (bind (string "'") (_: 
+            bind (choice [
+              (bind (string "''") (_: pure "''"))
+              (bind (string "'\${") (_: pure "\${"))
+              (bind (anyCharBut "'") (c: pure "'${c}"))
+            ])))
+
+            # Any single character except quote or backslash
+            anyContentChar
+          ]));
+        
+        nixStringLit = between (string "''") (string "''") stringContent;
+      in 
+        mkParser "indentString" nixStringLit;
+
+    #indentString = mkParser "indentString" (fmap N.indentString (fmap (matches: 
+    #  let content = head matches; 
+    #      len = builtins.stringLength content;
+    #  in builtins.substring 2 (len - 4) content
+    #) (matching "''(([^']|'[^']|''['$\\\\])*)''")));
 
     # String interpolation
-    interpolation = mkParser "interpolation" (fmap N.interpolation (between (string "${") (string "}") expr));
+    interpolation = mkParser "interpolation" (fmap N.interpolation (between (string "\${") (string "}") expr));
 
     absOrRelPath = mkParser "absOrRelPath" (
       fmap (composeMany [N.path head]) (matching ''((\.?\.?|~)(/[-_a-zA-Z0-9\.]+))+''));
@@ -747,9 +761,9 @@ let this = rec {
         };
 
         strings = {
-          normal = expectSuccess "\"hello\"" (withExpectedSrc "\"hello\"" (N.string "hello"));
-          indent = expectSuccess "''hello''" (withExpectedSrc "''hello''" (N.indentString "hello"));
-          escaped = expectSuccess "\"hello\\nworld\"" (withExpectedSrc "\"hello\\nworld\"" (N.string "hello\nworld"));
+          normal = expectSuccess "\"hello\"" (withExpectedSrc "\"hello\"" (N.stringPieces false [(N.string "hello")]));
+          indent = expectSuccess "''hello''" (withExpectedSrc "''hello''" (N.stringPieces true [(N.string "hello")]));
+          escaped = expectSuccess ''"hello\nworld"'' (withExpectedSrc ''"hello\nworld"'' (N.stringPieces false [(N.string "hello\nworld")]));
         };
 
         paths = {
@@ -783,10 +797,18 @@ let this = rec {
           empty = expectSuccess "{}" (withExpectedSrc "{}" (N.attrs [] false));
           singleAttr =
             expectSuccess "{ a = 1; }"
-            (withExpectedSrc "{ a = 1; }" (N.attrs [(withExpectedSrc "a = 1; " (N.assignment (withExpectedSrc "a " (N.identifier "a")) (withExpectedSrc "1" (N.int 1))))] false));
+            (withExpectedSrc "{ a = 1; }" (N.attrs [
+              (withExpectedSrc "a = 1; " (N.assignment 
+                (withExpectedSrc "a " (N.identifier "a"))
+                (withExpectedSrc "1" (N.int 1))))
+            ] false));
           singleStringAttr =
             expectSuccess "{ \"a\" = 1; }"
-            (withExpectedSrc "{ \"a\" = 1; }" (N.attrs [(withExpectedSrc "\"a\" = 1; " (N.assignment (withExpectedSrc "\"a\" " (N.string "a")) (withExpectedSrc "1" (N.int 1))))] false));
+            (withExpectedSrc "{ \"a\" = 1; }" (N.attrs [
+              (withExpectedSrc "\"a\" = 1; " (N.assignment
+                (withExpectedSrc "\"a\" " (N.stringPieces false [(N.string "a")]))
+                (withExpectedSrc "1" (N.int 1))))
+              ] false));
           multipleAttrs = expectSuccess "{ a = 1; b = 2; }"
             (withExpectedSrc "{ a = 1; b = 2; }" (N.attrs [
               (withExpectedSrc "a = 1; " (N.assignment (withExpectedSrc "a " (N.identifier "a")) (withExpectedSrc "1" (N.int 1))))
@@ -896,42 +918,89 @@ let this = rec {
             "let f = x: x + 1; in f (if true then 42 else 0)"; in
             expect.eq result.type "success";
 
-          simpleString = expectSuccess "\"hello world\"" (withExpectedSrc "\"hello world\"" (N.string "hello world"));
+          simpleString = expectSuccess "\"hello world\"" (withExpectedSrc "\"hello world\"" (N.stringPieces false [(N.string "hello world")]));
           simpleStringWithEscapes = 
-            expectSuccess "\"hello\\nworld\"" (withExpectedSrc "\"hello\\nworld\"" (N.string "hello\nworld"));
+            expectSuccess "\"hello\\nworld\"" (withExpectedSrc "\"hello\\nworld\"" (N.stringPieces false [(N.string "hello\nworld")]));
 
-          indentString = expectSuccess "''hello world''" (withExpectedSrc "''hello world''" (N.indentString "hello world"));
+          indentString = expectSuccess "''hello world''" 
+            (withExpectedSrc "''hello world''" (N.stringPieces true [(N.string "hello world")]));
           indentStringWithEscapes = 
             expectSuccess 
               "''a '''hello ''\${toString 123}\\nworld'''.''"
-              (withExpectedSrc "''a '''hello ''\${toString 123}\\nworld'''.''" (N.indentString "a '''hello ''\${toString 123}\\nworld'''."));
+              (withExpectedSrc "''a '''hello ''\${toString 123}\\nworld'''.''"
+               (N.stringPieces true [(N.string "a ''hello \${toString 123}\\nworld''.")]));
 
           mixedExpression = let result = parseExpr ''{ a = [1 2]; b = "hello"; }.a''; in
             expect.eq result.type "success";
         };
 
         nestedInterpolation = {
-          string =
+          string.simple =
             expectSuccess
               "\"\${\"x\"}\""
-              (withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces [(N.interpolation (withExpectedSrc "\"x\"" (N.string "x")))]));
+              (withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces false [
+                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+              ]));
+
+          string.mixed =
+            expectSuccess
+              "\"hello \${\"x\"} world\""
+              (withExpectedSrc "\"hello \${\"x\"} world\"" (N.stringPieces false [
+                (N.string "hello ")
+                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+                (N.string " world")
+              ]));
+
           attrPath =
             expectSuccess
               "xs.\"\${\"x\"}\""
-              (withExpectedSrc "xs.\"\${\"x\"}\"" (N.binaryOp (withExpectedSrc "xs" (N.identifier "xs")) "." (withExpectedSrc "\"\${\"x\"}\"" (N.attrPath [(withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces [(N.interpolation (withExpectedSrc "\"x\"" (N.string "x")))]))]))));
+              (withExpectedSrc "xs.\"\${\"x\"}\"" 
+                (N.binaryOp (withExpectedSrc "xs" (N.identifier "xs")) "." 
+                  (withExpectedSrc "\"\${\"x\"}\"" (N.attrPath [
+                    (withExpectedSrc "\"\${\"x\"}\"" (N.stringPieces false [
+                      (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+                    ]))
+                  ]))));
+
           assignment =
             expectSuccess
               "{ \"\${\"x\"}\" = 123; }"
-              (withExpectedSrc "{ \"\${\"x\"}\" = 123; }" (N.attrs [(withExpectedSrc "\"\${\"x\"}\" = 123; " (N.assignment (withExpectedSrc "\"\${\"x\"}\" " (N.stringPieces [(N.interpolation (withExpectedSrc "\"x\"" (N.string "x")))])) (withExpectedSrc "123" (N.int 123))))] false));
+              (withExpectedSrc "{ \"\${\"x\"}\" = 123; }" (N.attrs [
+                (withExpectedSrc "\"\${\"x\"}\" = 123; " 
+                  (N.assignment 
+                    (withExpectedSrc "\"\${\"x\"}\" "
+                      (N.stringPieces false [ (N.interpolation (withExpectedSrc "\"x\"" (N.string "x"))) ]))
+                    (withExpectedSrc "123" (N.int 123))
+                  ))
+              ] false));
           # Test escaped $ - should be literal string, not interpolation
           escapedString =
             expectSuccess
               "\"\\\${\\\"x\\\"}\""
-              (withExpectedSrc "\"\\\${\\\"x\\\"}\"" (N.string "\${\"x\"}"));
+              (withExpectedSrc "\"\\\${\\\"x\\\"}\"" (N.stringPieces false [(N.string "\${\"x\"}")]));
+
+          escapedEscapedString =
+            expectSuccess
+              "\"\\\\\${\\\"x\\\"}\""
+              (withExpectedSrc "\"\\\\\${\\\"x\\\"}\"" (N.stringPieces false [
+                (N.string "\\")
+                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+              ]));
+
           escapedIndentString =
             expectSuccess
               "''''\${\"x\"}''"
-              (withExpectedSrc "''''\${\"x\"}''" (N.indentString "''\${\"x\"}"));
+              (withExpectedSrc "''''\${\"x\"}''" (N.stringPieces true [
+                (N.string "\${\"x\"}")
+              ]));
+
+          escapedEscapedIndentString =
+            expectSuccess
+              "'''''\${\"x\"}''"
+              (withExpectedSrc "'''''\${\"x\"}''" (N.stringPieces true [
+                (N.string "'")
+                (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")])))
+              ]));
         };
 
         selfParsing = {
