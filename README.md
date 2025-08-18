@@ -1,24 +1,12 @@
 ## nix-reflect
 Pure-Nix parser, evaluator, and reflection utilities for Nix expressions.
 
-### What is it?
-`nix-reflect` provides:
 - A full Nix parser written in pure Nix, based on `nix-parsec`.
 - A complete Nix evaluator that can reduce ASTs produced by the parser.
 - A reflection library that augments importable Nix code with reflective abilities by self-parsing and self-evaluation.
 - Misc:
   - A small toolkit to build and transform text/AST functions (`fn`)
   - A shim Nix 'evaluator' that operates by saving expressions to the Nix store, enabling quick if inefficient string -> value conversion.
-
-## Core modules
-- **parser**: `lib.parser`
-  - `parse :: string -> AST`
-- **eval**: `lib.eval`
-  - `eval :: (string | AST) -> Either EvalError a`
-- **debuglib**: `lib.debuglib`
-  - `pos`, `pathPos`, `printPos`, `printPosWith` for positional metadata
-
-## Examples
 
 ### Parsing
 
