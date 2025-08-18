@@ -18,7 +18,7 @@ in rec {
   runAST :: (string | AST) -> Either EvalError {a :: a, s :: EvalState} */
   runAST = expr:
     (Eval.do
-      (while "running string or AST node evaluation")
+      (whileV 1 "running string or AST node: ${_p_ expr}")
       (evalM expr))
     .run (EvalState.mempty {});
 
@@ -26,51 +26,60 @@ in rec {
   evalAST :: (string | AST) -> Either EvalError a */
   evalAST = expr:
     (Eval.do
-      (while "evaluating string or AST node")
+      (whileV 1 "evaluating string or AST node: ${_p_ expr}")
       (evalM expr))
     .run_ (EvalState.mempty {});
 
   /*
   evalM :: (string | AST) -> Eval a */
-  evalM = expr: {_, ...}:
-    _.do
-      (while "running string or AST node evaluation")
-      (set initEvalState)
-      (evalNodeM (parse expr));
+  evalM = expr:
+    with (log.v 2).call "evalM" expr ___;
+    {_, ...}:
+      _.do
+        (whileV 1 "running string or AST node evaluation: ${_p_ expr}")
+        (set initEvalState)
+        {parsed = {_}: _.pure (parse expr);}
+        ({parsed, _, ...}: _.do
+          (whileV 1 "evaluating parsed AST node: ${toString parsed}")
+          {res = evalNodeM parsed;}
+          ({_, res, ...}: _.pure (return res)));
 
   /* Main monadic eval entrypoint.
   evalNodeM :: AST -> Eval a */
-  evalNodeM = node: {_, ...}:
-    _.do
-      (while "evaluating AST node of type '${node.nodeType or "<no .nodeType>"}'")
-      ({_}: if is EvalError node then _.liftEither node else _.pure unit)
-      ({_}: _.guard (is AST node) (RuntimeError ''
-        evalNodeM: Expected AST node, got ${_ph_ node}
-      ''))
-      (switch node.nodeType {
-        int = evalLiteral node;
-        float = evalLiteral node;
-        string = evalLiteral node;
-        indentString = evalLiteral node;
-        path = evalPath node;
-        anglePath = evalAnglePath node;
-        list = evalList node;
-        attrs = evalAttrs node;
-        identifier = evalIdentifier node;
-        binaryOp = evalBinaryOp node;
-        unaryOp = evalUnaryOp node;
-        conditional = evalConditional node;
-        lambda = evalLambda node;
-        application = evalApplication node;
-        letIn = evalLetIn node;
-        assignment = evalAssignment node;
-        "with" = evalWith node;
-        "assert" = evalAssert node;
-        "abort" = evalAbort node;
-        "throw" = evalThrow node;
-        "import" = evalImport node;
-        "inherit" = evalInherit node;
-      });
+  evalNodeM = node:
+    with (log.v 3).call "evalNodeM" (toString node) ___;
+    {_, ...}:
+      _.do
+        (whileV 2 "evaluating AST node: ${toString node}")
+        ({_}: if is EvalError node then _.liftEither node else _.pure unit)
+        ({_}: _.guard (is AST node) (RuntimeError ''
+          evalNodeM: Expected AST node, got ${_ph_ node}
+        ''))
+        {res = switch node.nodeType {
+          int = evalLiteral node;
+          float = evalLiteral node;
+          string = evalLiteral node;
+          indentString = evalLiteral node;
+          path = evalPath node;
+          anglePath = evalAnglePath node;
+          list = evalList node;
+          attrs = evalAttrs node;
+          identifier = evalIdentifier node;
+          binaryOp = evalBinaryOp node;
+          unaryOp = evalUnaryOp node;
+          conditional = evalConditional node;
+          lambda = evalLambda node;
+          application = evalApplication node;
+          letIn = evalLetIn node;
+          assignment = evalAssignment node;
+          "with" = evalWith node;
+          "assert" = evalAssert node;
+          "abort" = evalAbort node;
+          "throw" = evalThrow node;
+          "import" = evalImport node;
+          "inherit" = evalInherit node;
+        };}
+        ({_, res, ...}: _.pure (return res));
 
   # Evaluate a literal value (int, float, string, etc.)
   # evalLiteral :: AST -> Eval a
@@ -222,8 +231,9 @@ in rec {
     ''));
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r:
-    {_, ...}:
-      _.guard 
+    {_, ...}: _.do
+      (while "guarding binary op")
+      (_.guard 
         (any id 
           (map 
             (typeSet: elem (lib.typeOf l) typeSet && elem (lib.typeOf r) typeSet)
@@ -237,7 +247,7 @@ in rec {
               (map 
                 (typeSet: "(${joinSep " | " typeSet})") 
                 compatibleTypeSets)})
-        '');
+        ''));
 
   guardBinaryOp = op: l: r: switch op {
     "+" = guardOneBinaryOp "+" [["int" "float"] ["string" "path"]] l r;

@@ -380,6 +380,7 @@ rec {
   pure = x: {_, ...}: _.pure x;
   throws = e: {_, ...}: _.throws e;
   while = msg: {_, ...}: _.while msg;
+  whileV = v: msg: {_, ...}: _.whileV v msg;
 
   # Check if a value is a monad.
   # i.e. isMonad (Eval.pure 1) -> true
@@ -478,7 +479,10 @@ rec {
               fmap = this: f: set_e this (this.e.fmap f);
               when = this: cond: x: this.bind (_: eval.monad.when cond x);
               unless = this: cond: x: this.bind (_: eval.monad.unless cond x);
-              while = this: msg: this.bind (_: log.while msg this);
+              whileV = this: v: s: this.bind (_: 
+                (log.v v).show "while ${s}"
+                (log.while s this));
+              while = this: s: this.whileV 3 s;
               guard = this: cond: e: 
                 if cond 
                 then this.bind ({_}: _.pure unit) 
