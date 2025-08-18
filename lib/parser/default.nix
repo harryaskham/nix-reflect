@@ -412,28 +412,30 @@ let this = rec {
     # Note
     # 
     # This differs from the syntax for escaping a dollar-curly within double quotes ("\\${"). Be aware of which one is needed at a given moment.
+    indentStringContent = 
+      let anyContentChar = fmap (x: builtins.head x) (matching "[^']");
+      in fmap (collectStringParts true) (many (choice [
+        interpolation
+
+        # Handle escape sequences - return the actual character or ${ for escaped interpolation
+        # Permit anything except '', with ''' -> '' and ''${ -> ${, where e.g. 'x -> 'x
+        (skipThen (string "'''") (pure "''"))
+        (skipThen (string "''\${") (pure "\${"))
+        (bind (skipThen (string "'") anyContentChar) (c: pure "'${c}"))
+
+        # Any single character except quote or backslash
+        anyContentChar
+      ]));
+        
     indentString = 
       let
-        # Parse string content as a list of either characters or interpolations
-        stringContent = 
-          let anyContentChar = fmap (x: builtins.head x) (matching "[^']");
-          in fmap (collectStringParts true) (many (choice [
-            interpolation
-
-            # Handle escape sequences - return the actual character or ${ for escaped interpolation
-            # Permit anything except '', with ''' -> '' and ''${ -> ${
-            (bind (string "'") (_: 
-            bind (choice [
-              (bind (string "''") (_: pure "''"))
-              (bind (string "'\${") (_: pure "\${"))
-              (bind anyContentChar (c: pure "'${c}"))
-            ])))
-
-            # Any single character except quote or backslash
-            anyContentChar
-          ]));
-        
-        nixStringLit = between (string "''") (string "''") stringContent;
+        nixStringLit = 
+          bind (string "''") (_:
+          bind indentStringContent (pieces:
+          bind (string "''") (_:
+          bind (notFollowedBy (string "'")) (_:
+          bind (notFollowedBy (string "$")) (_:
+          pure pieces)))));
       in 
         mkParser "indentString" nixStringLit;
 
@@ -984,17 +986,32 @@ let this = rec {
           # TODO: Need '''' not to match as ""
           escapedIndentString =
             expectSuccess
-              "''''\${\"x\"}''"
-              (withExpectedSrc "''''\${\"x\"}''" (N.stringPieces true [
-                (N.string "\${\"x\"}")
+              "''''\${''"
+              (withExpectedSrc "''''\${''" (N.stringPieces true [
+                (N.string "\${")
               ]));
 
           escapedEscapedIndentString =
             expectSuccess
               "'''''\${\"x\"}''"
               (withExpectedSrc "'''''\${\"x\"}''" (N.stringPieces true [
-                (N.string "'")
+                (N.string "''")
                 (withExpectedSrc "\${\"x\"}" (N.interpolation (withExpectedSrc "\"x\"" (N.stringPieces false [(N.string "x")]))))
+              ]));
+        };
+        edgeCases = {
+          conjoinedIndentedStrings.spaced =
+            expectSuccess
+              "[''a'' ''b'']"
+              (withExpectedSrc "[''a'' ''b'']" (N.list [
+                (withExpectedSrc "''a'' " (N.stringPieces true [(N.string "a")]))
+                (withExpectedSrc "''b''" (N.stringPieces true [(N.string "b")]))
+              ]));
+          conjoinedIndentedStrings.unspaced =
+            expectSuccess
+              "[''a''''b'']"
+              (withExpectedSrc "[''a''''b'']" (N.list [
+                (withExpectedSrc "''a''''b''" (N.stringPieces true [(N.string "a'''b")]))
               ]));
         };
 
