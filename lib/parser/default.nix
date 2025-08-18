@@ -99,7 +99,7 @@ let this = rec {
               (k: v: 
                 let vS = _p_ v;
                 #in if lineCount vS == 1 then { name = "${k} = ${vS}"; body = {}; box = boxes.single; }
-                in if lineCount vS == 1 then { name = "├ ${k} = ${vS}"; body = {}; box = (boxes.single // { prefixBlock = false; }); }
+                in if lineCount vS == 1 then { name = vS; body = {}; box = boxes.setEl maxKeyLen k; }
                 else { body = v; box = boxes.setEl maxKeyLen k; })
               xs);
 
@@ -183,7 +183,7 @@ let this = rec {
           if i == 0 then blockPrefix.first 
           else if i == nLines - 1 then blockPrefix.last
           else blockPrefix.mid;
-      in _ls_ (ifor lines (i: l: "${prefix}${space}${linePrefix i}${l}"))))
+      in _ls_ (ifor lines (i: l: "${prefix}${space}${linePrefix i} ${l}"))))
     );
 
   printAST = printAST_ true true "";
