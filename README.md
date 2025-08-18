@@ -23,7 +23,7 @@ Everything is written in Nix, no external binaries.
 ```nix
 # flake.nix
 {
-  inputs.nix-reflect.url = "github:harryaskham/collective-public?dir=flakes/nix-reflect";
+  inputs.nix-reflect.url = "github:harryaskham/nix-reflect";
   # Optional but recommended to avoid input duplication
   inputs.nix-reflect.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -41,26 +41,62 @@ Everything is written in Nix, no external binaries.
 ### Quick try in a REPL
 - Load the flake:
 ```bash
-nix repl 'github:harryaskham/collective-public?dir=flakes/nix-reflect'
+nix repl 'github:harryaskham/nix-reflect'
 ```
 - Then use `lib` directly:
 ```nix
-lib.eval.eval.store "1 + 41"          # => 42
-(lib.eval.eval.ast "1 + 1").right     # => 2 (Right value)
+lib.parser.parse "let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y"  
+```
+
+```nix
+# trace:
+# let _ in _
+#   │ bindings ╪ ┆0┆ <_ = _>
+#   │          │ ┆ ┆   │ lhs ╪ `a`
+#   │          │ ┆ ┆   │ rhs ╪ rec {_}
+#   │          │ ┆ ┆   │     │   │ bindings ╪ ┆0┆ <_ = _>
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │ lhs ╪ `x`
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │ rhs ╪ <_ + _>
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │     │   │ lhs ╪ ℤ 1
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │     │   │ rhs ╪ ℤ 1
+#   │          │ ┆ ┆   │     │   │          │ ┆1┆ <_ = _>
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │ lhs ╪ `y`
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │ rhs ╪ <_ + _>
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │     │   │ lhs ╪ `x`
+#   │          │ ┆ ┆   │     │   │          │ ┆ ┆   │     │   │ rhs ╪ ℤ 1
+#   │          │ ┆ ┆   │     │   │    isRec ╪ true
+#   │     body ╪ <_ + _>
+#   │          │   │ lhs ╪ <_ . _>
+#   │          │   │     │   │ lhs ╪ `a`
+#   │          │   │     │   │ rhs ╪ <_._._>
+#   │          │   │     │   │     │   │ path ╪ ┆0┆ `x`
+#   │          │   │ rhs ╪ <_ . _>
+#   │          │   │     │   │ lhs ╪ `a`
+#   │          │   │     │   │ rhs ╪ <_._._>
+#   │          │   │     │   │     │   │ path ╪ ┆0┆ `y`
+{
+  __args = { ... };
+  __isAST = true;
+  __src = "let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y";
+  __toString = «lambda __toString @ /home/harry/collective/collective-public/flakes/nix-reflect/lib/parser/default.nix:215:20»;
+  __type = { ... };
+  bindings = [ ... ];
+  body = { ... };
+  fmap = «lambda fmap @ /home/harry/collective/collective-public/flakes/nix-reflect/lib/parser/default.nix:220:14»;
+  mapNode = «lambda mapNode @ /home/harry/collective/collective-public/flakes/nix-reflect/lib/parser/default.nix:224:17»;
+  nodeType = "letIn";
+}
+
+```nix
+lib.eval "let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y"
+# => Right 5
 ```
 
 ## Core modules
 - **parser**: `lib.parser`
-  - `parse :: (string | AST) -> AST`
-  - `printAST :: AST -> string`
-  - `read.fileFromAttrPath :: [string] -> path -> args -> string`
+  - `parse :: string -> AST`
 - **eval**: `lib.eval`
-  - `eval.ast :: (string | AST) -> Either EvalError a`
-  - `eval.store :: string -> a`
-  - plus supporting modules: `eval.monad`, `eval.ast`, `eval.fn`, `eval.store`
-- **fn**: `lib.eval.fn`
-  - `fn.ast :: string -> { __fn :: a -> b; mapText; mapAST; }`
-  - `fn.store :: string -> { __fn :: a -> b; mapText; }`
+  - `eval :: (string | AST) -> Either EvalError a`
 - **debuglib**: `lib.debuglib`
   - `pos`, `pathPos`, `printPos`, `printPosWith` for positional metadata
 

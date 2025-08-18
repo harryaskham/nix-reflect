@@ -4,8 +4,11 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    collective-public.url = "github:harryaskham/collective-public";
     nix-parsec.url = "github:nprindle/nix-parsec";
+    collective-public = {
+      url = "github:harryaskham/collective-public";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = { self, nixpkgs, flake-utils, collective-public, nix-parsec, ... } @ inputs:
