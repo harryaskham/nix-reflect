@@ -426,7 +426,7 @@ let this = rec {
             bind (choice [
               (bind (string "''") (_: pure "''"))
               (bind (string "'\${") (_: pure "\${"))
-              (bind (fmap (x: builtins.head x) (matching "[^']")) (c: pure "'${c}"))
+              (bind anyContentChar (c: pure "'${c}"))
             ])))
 
             # Any single character except quote or backslash
@@ -436,12 +436,6 @@ let this = rec {
         nixStringLit = between (string "''") (string "''") stringContent;
       in 
         mkParser "indentString" nixStringLit;
-
-    #indentString = mkParser "indentString" (fmap N.indentString (fmap (matches: 
-    #  let content = head matches; 
-    #      len = builtins.stringLength content;
-    #  in builtins.substring 2 (len - 4) content
-    #) (matching "''(([^']|'[^']|''['$\\\\])*)''")));
 
     # String interpolation
     interpolation = mkParser "interpolation" (fmap N.interpolation (between (string "\${") (string "}") expr));
@@ -920,7 +914,8 @@ let this = rec {
 
           simpleString = expectSuccess "\"hello world\"" (withExpectedSrc "\"hello world\"" (N.stringPieces false [(N.string "hello world")]));
           simpleStringWithEscapes = 
-            expectSuccess "\"hello\\nworld\"" (withExpectedSrc "\"hello\\nworld\"" (N.stringPieces false [(N.string "hello\nworld")]));
+            expectSuccess "\"hello\\nworld\""
+              (withExpectedSrc "\"hello\\nworld\"" (N.stringPieces false [(N.string "hello\nworld")]));
 
           indentString = expectSuccess "''hello world''" 
             (withExpectedSrc "''hello world''" (N.stringPieces true [(N.string "hello world")]));
@@ -928,7 +923,7 @@ let this = rec {
             expectSuccess 
               "''a '''hello ''\${toString 123}\\nworld'''.''"
               (withExpectedSrc "''a '''hello ''\${toString 123}\\nworld'''.''"
-               (N.stringPieces true [(N.string "a '''hello ''\${toString 123}\\nworld'''.")]));
+               (N.stringPieces true [(N.string "a ''hello \${toString 123}\\nworld''.")]));
 
           mixedExpression = let result = parseExpr ''{ a = [1 2]; b = "hello"; }.a''; in
             expect.eq result.type "success";
@@ -986,6 +981,7 @@ let this = rec {
                 (N.string "\\\${\"x\"}")
               ]));
 
+          # TODO: Need '''' not to match as ""
           escapedIndentString =
             expectSuccess
               "''''\${\"x\"}''"
