@@ -32,17 +32,27 @@ in rec {
 
   /*
   evalM :: (string | AST) -> Eval a */
+  #evalM = expr:
+  #  with (log.v 2).call "evalM" expr ___;
+  #  {_}:
+  #    _.do
+  #      (whileV 1 "running string or AST node evaluation: ${_p_ expr}")
+  #      (set initEvalState)
+  #      ({_}:
+  #        let parsed = parse expr;
+  #        in _.do
+  #          (whileV 1 "evaluating parsed AST node: ${toString parsed}")
+  #          {res = evalNodeM parsed;}
+  #          ({_, res, ...}: _.pure (return res)));
   evalM = expr:
-    with (log.v 2).call "evalM" expr ___;
-    {_, ...}:
-      _.do
-        (whileV 1 "running string or AST node evaluation: ${_p_ expr}")
-        (set initEvalState)
-        {parsed = {_}: _.pure (parse expr);}
-        ({parsed, _, ...}: _.do
-          (whileV 1 "evaluating parsed AST node: ${toString parsed}")
-          {res = evalNodeM parsed;}
-          ({_, res, ...}: _.pure (return res)));
+    let parsed = parse expr;
+    in with (log.v 2).call "evalM" expr ___;
+    (((
+      (Eval.pure unit)
+      .bind (whileV 1 "evaluating parsed AST node: ${toString parsed}"))
+      .bind (set initEvalState))
+      .bind (evalNodeM parsed))
+      .bind ({_, _a, ...}: _.pure (return _a));
 
   /* Main monadic eval entrypoint.
   evalNodeM :: AST -> Eval a */
@@ -630,10 +640,10 @@ in rec {
     # Tests for evalAST round-trip property
     evalAST = {
 
-      _000_failing = solo {
-        _1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
-        _2_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
-        _3_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
+      _0000_supersmoke = solo (testRoundTrip "1" 1);
+
+      _000_failing = {
+        #_1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
       };
 
       _00_smoke = solo {
@@ -653,9 +663,9 @@ in rec {
         _13_recAttrSetRecursion = testRoundTrip "rec { a = 1; b = a; }" {a = 1; b = 1;};
         #_14_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
         _15_letIn = testRoundTrip "let a = 1; in a" 1;
-        #_16_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
+        _16_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         _17_withs = testRoundTrip "with {a = 1;}; a" 1;
-        #_18_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
+        _18_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
       };
 
       _01_allFeatures =

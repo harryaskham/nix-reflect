@@ -2,7 +2,7 @@
 
 with collective-lib.typed;
 let
-  inherit (nix-reflect) parser;
+  inherit (nix-reflect) parser debuglib;
 in rec {
   checkTypes = all (T: T ? check || isbuiltinName T);
   
@@ -282,6 +282,7 @@ in rec {
       doPos = 
         if empty self.__statements then null
         else debuglib.pos.path (head self.__statements);
+
       doLine = 
         if doPos == null then null
         else let p = soloValue doPos; in 
@@ -349,7 +350,13 @@ in rec {
       __setInitM = initM: mkDo this.M initM this.__statements;
 
       # Bind with specified initial monadic value.
-      bind = statement:
+      # Just creates a new do with self as the initial value of the last one.
+      bind = statement: M.do
+        {_last = this.action;}
+        ({_, _last}: statement {inherit _; _a = _last;});
+
+      # Actually force the block to evaluate down to a final M value.
+      force = {}:
         let 
           initAcc = {
             bindings = {};
@@ -362,16 +369,22 @@ in rec {
             assert that _a.canBind (withStackError this ''
               do: final statement of a do-block cannot be an assignment.
             '');
-            (handleBindStatement M _a statement).bind ({_, _a}: _a.m));
+            _a.m);
+
+      action = this.force {};
+      run = arg: this.action.run arg;
+      run_ = arg: this.action.run_ arg;
+      mapState = arg: this.action.mapState arg;
+      setState = arg: this.action.setState arg;
+      mapEither = arg: this.action.mapEither arg;
+      catch = arg: this.action.catch arg;
+
 
       # Bind pure with {} initial state to convert do<M a> to M a
-      action = this.bind ({_, _a}: _.pure _a);
-      inherit (this.action) mapState setState mapEither sq run run_ while catch foldM sequenceM traverse;
+      #action = this.bind ({_, _a}: _.pure _a);
+      #action = (M.pure unit).bind ({_}: this); #this.bind ({_, _a}: _.pure _a);
+      #inherit (this.action) mapState setState mapEither sq while catch foldM sequenceM traverse;# run run_;
       do = mkDo M this.action [];
-      guard = cond: e: 
-        if cond 
-        then this.bind ({_}: _.pure unit) 
-        else (this.throws e);
     };
     in this;
 
@@ -486,9 +499,16 @@ in rec {
                 then this.bind ({_}: _.pure unit) 
                 else (this.throws e);
 
-              foldM = this: f: initAcc: xs: 
+              foldM = this: f: initAcc: xs:
                 let startM = this.bind ({_}: _.pure initAcc);
                 in fold.left (accM: a: accM.bind ({_, _a}: f _a a)) startM xs;
+
+              #foldM = this: f: initAcc: xs:
+              #  this.bind ({_, ...}:
+              #    fold.left
+              #      (accM: x: accM.bind({_, _a, ...}: f _a x))
+              #      (this.pure initAcc)
+              #      xs);
 
               # sequenceM :: [Eval a] -> Eval [a]
               sequenceM = this:
@@ -500,13 +520,11 @@ in rec {
                   [];
 
               # traverse :: (a -> Eval b) -> [a] -> Eval [b]
-              traverse = this: f: xs: 
-                this.foldM
-                  (acc: x:
-                    Eval.do
-                      {elem = f x;}
-                      ({_, elem}: _.pure (acc ++ [elem])))
-                  []
+              traverse = this: f: xs:
+                fold.left (accM: x: accM.bind ({_, _a, ...}: _.do
+                  {value = f x;}
+                  ({_, value}: _.pure (_a ++ [value]))))
+                  (this.pure [])
                   xs;
 
               bind = this: statement: 
@@ -1025,23 +1043,26 @@ in rec {
                 ) { test = "value"; } { test = "value"; };
                 
                 # Test that traverse properly threads state with foldM implementation
-                traverseWithState = expectRun {} (
-                  Eval.do
-                    (set (EvalState {counter = 0;}))
+                traverseWithState = expectRun {}
+                  (Eval.do
+                    (set (EvalState {counter = 0; seen = [];}))
                     {result = {_, ...}: _.traverse (x: 
                       Eval.do
                         {state = get;}
-                        ({_, state}: _.set (EvalState (state.scope // {counter = (state.scope.counter or 0) + x;})))
+                        ({_, state}: _.set (EvalState (state.scope // {
+                          counter = (state.scope.counter or 0) + x;
+                          seen = (state.scope.seen or []) ++ [x];
+                        })))
                         ({_}: _.pure x)
-                    ) [1 2 3];}
+                    ) [1 2 3 4 5];}
                     {finalState = get;}
                     ({_, result, finalState}: _.pure {
                       result = result;
                       finalCounter = finalState.scope.counter;
-                    })
-                ) { counter = 6; } {
-                  result = [1 2 3];
-                  finalCounter = 6;
+                    }))
+                  { counter = 15; seen = [1 2 3 4 5]; } {
+                  result = [1 2 3 4 5];
+                  finalCounter = 15;
                 };
               };
 
