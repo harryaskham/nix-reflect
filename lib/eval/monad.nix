@@ -490,7 +490,9 @@ in rec {
                 then this.bind ({_}: _.pure unit) 
                 else (this.throws e);
 
-              foldM = this: f: initAcc: xs: this.bind (_: foldM Eval f initAcc xs);
+              foldM = this: f: initAcc: xs: 
+                let startM = this.bind ({_}: _.pure initAcc);
+                in fold.left (accM: a: accM.bind ({_, _a}: f _a a)) startM xs;
 
               # sequenceM :: [Eval a] -> Eval [a]
               sequenceM = this:
@@ -645,6 +647,37 @@ in rec {
                 in (_.bind _.get).bind ({_, _a}: _.pure (Int (_a.scope.x + i.x))));
             thenThrows = stateXTimes3.bind ({_}: _.throws (Throw "test error"));
             bindAfterThrow = thenThrows.bind ({_}: _.pure "not reached");
+            
+            # Test for scope isolation issue reproduction
+            scopeIssueTest = 
+              Eval.do
+                (set (EvalState { a = 1; }))
+                (appendScope { b = 2; })
+                {firstCheck = getScope;}
+                # Simulate what evalRecBindingList does - using appendScope in a loop
+                (appendScope { c = 3; })
+                {secondCheck = getScope;}
+                # This should still have a, b, c but let's see what traverse does
+                {traverseResult = traverse (x: 
+                  Eval.do 
+                    {currentScope = getScope;}
+                    ({_, currentScope}: _.pure { inherit x; scope = currentScope; })
+                  ) ["test1" "test2"];}
+                {finalCheck = getScope;}
+                ({_, firstCheck, secondCheck, traverseResult, finalCheck}: _.pure {
+                  inherit firstCheck secondCheck traverseResult finalCheck;
+                });
+            
+            # Simpler test - just check that foldM preserves state
+            simpleFoldMTest =
+              Eval.do
+                (set (EvalState { x = 5; }))
+                {result = foldM (acc: elem: 
+                  Eval.do
+                    {state = getScope;}
+                    ({_, state}: _.pure (acc + elem + state.x))
+                ) 0 [1 2 3];}
+                ({_, result}: _.pure result);
             catchAfterThrow = thenThrows.catch ({_, _e}: _.pure "handled error '${_e}'");
             fmapAfterCatch = catchAfterThrow.fmap (s: s + " then ...");
           };
@@ -678,6 +711,18 @@ in rec {
           _07_catch.noError = expectRun {} (a._42.catch (_: throw "no")) {} (Int 42);
           _08_catch.withError = expectRun {} a.catchAfterThrow { x = 6; } "handled error 'EvalError.Throw:\n  test error'";
           _09_catch.thenFmap = expectRun {} a.fmapAfterCatch { x = 6; } "handled error 'EvalError.Throw:\n  test error' then ...";
+          
+          _09_1_scopeIssueTest = expectRun {} a.scopeIssueTest { a = 1; b = 2; c = 3; } {
+            firstCheck = { a = 1; b = 2; };
+            secondCheck = { a = 1; b = 2; c = 3; };
+            traverseResult = [
+              { x = "test1"; scope = { a = 1; b = 2; c = 3; }; }
+              { x = "test2"; scope = { a = 1; b = 2; c = 3; }; }
+            ];
+            finalCheck = { a = 1; b = 2; c = 3; };
+          };
+          
+          _09_2_simpleFoldMTest = expectRun {} a.simpleFoldMTest { x = 5; } 21;
 
           _10_signatures = {
             IndependentAction.monad =

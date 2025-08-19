@@ -193,7 +193,7 @@ in rec {
       {state = get;}
       {attrsList = {_, ...} @ ctx: _.traverse (binding: evalRecBinding binding ctx) bindings;}
       {attrs = {_, attrsList}: _.pure (listToAttrs (concatLists attrsList));}
-      ({_, attrs, state, ...}: _.set (EvalState (attrs // state.scope)))
+      ({_, attrs, state, ...}: _.appendScope attrs)
       ({_, attrsList, attrs, state, ...}: _.guard (i <= size bindings) (RuntimeError ''
         Recursive binding list evaluation failed to complete at iteration ${toString i}:
           ${_ph_ bindings}
@@ -630,7 +630,7 @@ in rec {
     # Tests for evalAST round-trip property
     evalAST = {
 
-      _000_failing = {
+      _000_failing = solo {
         _1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
         _2_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         _3_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];

@@ -10,7 +10,6 @@ function maybe-install-nix() {
 function maybe-bootstrap-cursor-agent() {
   if [[ "$(hostname)" == "cursor" ]]; then
     maybe-install-nix
-    maybe-bootstrap-cursor-agent
   fi
 }
 
