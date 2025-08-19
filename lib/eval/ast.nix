@@ -642,8 +642,8 @@ in rec {
 
       _0000_supersmoke = solo (testRoundTrip "1" 1);
 
-      _000_failing = {
-        #_1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
+      _000_failing = solo {
+        _1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
       };
 
       _00_smoke = solo {

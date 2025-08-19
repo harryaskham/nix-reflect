@@ -13,7 +13,9 @@ lib.fix (self:
         inputs.nix-reflect.lib.${pkgs.system} = self;
       };
     };
-    collective-lib = collective-public.lib.${pkgs.system};
+    collective-lib = collective-public.lib.${pkgs.system}.withTraceOpts {
+      traceLevel = 1;
+    };
     nix-parsec = inputs.nix-parsec or {
       # nix eval --raw .#inputs.nix-parsec.outPath 2>/dev/null
       lib = import /nix/store/nlawm43dvjgaz5q9bj45vwk6a3rfddbn-source;
