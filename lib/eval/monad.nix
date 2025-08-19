@@ -500,7 +500,14 @@ in rec {
                   [];
 
               # traverse :: (a -> Eval b) -> [a] -> Eval [b]
-              traverse = this: f: xs: this.sequenceM (map f xs);
+              traverse = this: f: xs: 
+                this.foldM
+                  (acc: x:
+                    Eval.do
+                      {elem = f x;}
+                      ({_, elem}: _.pure (acc ++ [elem])))
+                  []
+                  xs;
 
               bind = this: statement: 
                 this.e.case {
@@ -1008,6 +1015,34 @@ in rec {
                 empty = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
                 single = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
                 multiple = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
+                
+                # Simple test showing get() works correctly in do-block  
+                simpleGetIssue = expectRun {} (
+                  Eval.do
+                    (set (EvalState {test = "value";}))
+                    {stateAfterSet = get;}
+                    ({_, stateAfterSet}: _.pure stateAfterSet.scope)
+                ) { test = "value"; } { test = "value"; };
+                
+                # Test that traverse properly threads state with foldM implementation
+                traverseWithState = expectRun {} (
+                  Eval.do
+                    (set (EvalState {counter = 0;}))
+                    {result = {_, ...}: _.traverse (x: 
+                      Eval.do
+                        {state = get;}
+                        ({_, state}: _.set (EvalState (state.scope // {counter = (state.scope.counter or 0) + x;})))
+                        ({_}: _.pure x)
+                    ) [1 2 3];}
+                    {finalState = get;}
+                    ({_, result, finalState}: _.pure {
+                      result = result;
+                      finalCounter = finalState.scope.counter;
+                    })
+                ) { counter = 6; } {
+                  result = [1 2 3];
+                  finalCounter = 6;
+                };
               };
 
               sequenceM = {
@@ -1017,6 +1052,7 @@ in rec {
                   (Eval.pure 1) (Eval.pure 2) (Eval.pure 3)
                 ]) {} [1 2 3];
               };
+
           };
         };
 
