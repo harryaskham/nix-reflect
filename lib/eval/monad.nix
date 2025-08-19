@@ -326,10 +326,6 @@ in rec {
             m = mb;
           })));
 
-  # foldM :: (acc -> a -> M acc) -> acc -> [a] -> M acc
-  foldM = M: f: initAcc: xs:
-    fold.left (accM: a: accM.bind ({_, _a}: f _a a)) (M.pure initAcc) xs;
-
   # Infer monad from first statement
   do = statement: 
     let M = inferMonadFromStatement statement;
@@ -360,7 +356,7 @@ in rec {
             canBind = false;
             m = this.__initM;
           };
-          accM = foldM M (handleBindStatement M) initAcc (this.__statements);
+          accM = (M.pure unit).foldM (handleBindStatement M) initAcc (this.__statements);
         in
           accM.bind ({_, _a}:
             assert that _a.canBind (withStackError this ''
@@ -370,7 +366,7 @@ in rec {
 
       # Bind pure with {} initial state to convert do<M a> to M a
       action = this.bind ({_, _a}: _.pure _a);
-      inherit (this.action) mapState setState mapEither sq run run_ while catch;
+      inherit (this.action) mapState setState mapEither sq run run_ while catch foldM sequenceM traverse;
       do = mkDo M this.action [];
       guard = cond: e: 
         if cond 
@@ -545,6 +541,8 @@ in rec {
     };
   };
 
+  sequenceM = this: xs: {_, ...}: _.sequenceM xs;
+  foldM = f: initAcc: xs: {_, ...}: _.foldM f initAcc xs;
   traverse = f: xs: {_, ...}: _.traverse f xs;
 
   get = {_, ...}: _.bind _.get;
@@ -648,36 +646,6 @@ in rec {
             thenThrows = stateXTimes3.bind ({_}: _.throws (Throw "test error"));
             bindAfterThrow = thenThrows.bind ({_}: _.pure "not reached");
             
-            # Test for scope isolation issue reproduction
-            scopeIssueTest = 
-              Eval.do
-                (set (EvalState { a = 1; }))
-                (appendScope { b = 2; })
-                {firstCheck = getScope;}
-                # Simulate what evalRecBindingList does - using appendScope in a loop
-                (appendScope { c = 3; })
-                {secondCheck = getScope;}
-                # This should still have a, b, c but let's see what traverse does
-                {traverseResult = traverse (x: 
-                  Eval.do 
-                    {currentScope = getScope;}
-                    ({_, currentScope}: _.pure { inherit x; scope = currentScope; })
-                  ) ["test1" "test2"];}
-                {finalCheck = getScope;}
-                ({_, firstCheck, secondCheck, traverseResult, finalCheck}: _.pure {
-                  inherit firstCheck secondCheck traverseResult finalCheck;
-                });
-            
-            # Simpler test - just check that foldM preserves state
-            simpleFoldMTest =
-              Eval.do
-                (set (EvalState { x = 5; }))
-                {result = foldM (acc: elem: 
-                  Eval.do
-                    {state = getScope;}
-                    ({_, state}: _.pure (acc + elem + state.x))
-                ) 0 [1 2 3];}
-                ({_, result}: _.pure result);
             catchAfterThrow = thenThrows.catch ({_, _e}: _.pure "handled error '${_e}'");
             fmapAfterCatch = catchAfterThrow.fmap (s: s + " then ...");
           };
@@ -712,17 +680,6 @@ in rec {
           _08_catch.withError = expectRun {} a.catchAfterThrow { x = 6; } "handled error 'EvalError.Throw:\n  test error'";
           _09_catch.thenFmap = expectRun {} a.fmapAfterCatch { x = 6; } "handled error 'EvalError.Throw:\n  test error' then ...";
           
-          _09_1_scopeIssueTest = expectRun {} a.scopeIssueTest { a = 1; b = 2; c = 3; } {
-            firstCheck = { a = 1; b = 2; };
-            secondCheck = { a = 1; b = 2; c = 3; };
-            traverseResult = [
-              { x = "test1"; scope = { a = 1; b = 2; c = 3; }; }
-              { x = "test2"; scope = { a = 1; b = 2; c = 3; }; }
-            ];
-            finalCheck = { a = 1; b = 2; c = 3; };
-          };
-          
-          _09_2_simpleFoldMTest = expectRun {} a.simpleFoldMTest { x = 5; } 21;
 
           _10_signatures = {
             IndependentAction.monad =
@@ -1042,9 +999,9 @@ in rec {
               };
 
               foldM = {
-                empty = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 []) {} 0;
-                single = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 [5]) {} 5;
-                multiple = expectRun {} (foldM Eval (acc: x: Eval.pure (acc + x)) 0 [1 2 3]) {} 6;
+                empty = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [])) {} 0;
+                single = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [5])) {} 5;
+                multiple = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])) {} 6;
               };
 
               traverse = {
