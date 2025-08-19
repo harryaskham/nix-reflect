@@ -1,15 +1,17 @@
-{ lib, collective-lib, parser, eval, ... }:
+{ lib, collective-lib, nix-reflect, ... }:
 
 # Create a callable lambda function from a string.
 # Exposed as eval.fn in default.nix
 
 with collective-lib.typed;
-let parse = parser.parse; in rec {
-  # Default to AST-based txtfns.
-  __functor = self: self.ast;
+let
+  inherit (nix-reflect) parser eval;
+in rec {
+  __functor = self: self.fn;
 
   # Use eval to create a callable lambda function from a string.
   fn = {
+    # Default to AST-based txtfns.
     __functor = self: self.ast;
 
     store = functionExpr: {

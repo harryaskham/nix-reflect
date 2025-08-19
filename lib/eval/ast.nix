@@ -1,11 +1,11 @@
-{ lib, collective-lib, parser, eval, ... }:
+{ lib, collective-lib, nix-reflect, ... }:
 
 with collective-lib.typed;
-with eval.monad;
+with nix-reflect.eval.monad;
 
 let
-  parse = parser.parse;
-  inherit (parser) AST N;
+  parse = nix-reflect.parser.parse;
+  inherit (nix-reflect.parser) AST N;
 in rec {
   # Module callable as eval.ast
   __functor = self: self.evalAST;

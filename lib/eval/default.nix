@@ -1,4 +1,4 @@
-{ lib, collective-lib, parser, ... }:
+{ lib, collective-lib, nix-reflect, ... }:
 
 # TODO:
 # - Dynamic derivations should let eval-in-eval occur without requiring nested nix build:
@@ -8,23 +8,17 @@
 # Writes the string out to a file in the store by a derivation, and then
 # imports that file.
 let
-  argsBase = { inherit lib collective-lib; };
-  modules = let self = {
-    monad = import ./monad.nix argsBase;
-  }; in self // {
-    store = import ./store.nix argsBase;
-    fn = import ./fn.nix (argsBase // { inherit parser; eval = { monad = self.monad; }; });
-    ast = import ./ast.nix (argsBase // { inherit parser; eval = { monad = self.monad; }; });
+  args = { inherit lib collective-lib nix-reflect; };
+  modules = {
+    monad = import ./monad.nix args;
+    store = import ./store.nix args;
+    fn = import ./fn.nix args;
+    ast = import ./ast.nix args;
   };
 in
-
 # Expose the modules as eval.monad, eval.store, eval.ast
 # Plus the centralising eval function.
-with collective-lib.typed;
-rec {
-
-  inherit (modules) monad fn ast store;
-
+collective-lib.tests.withMergedSuites modules // {
   /* Default to dispatching based on the type of the argument,
   eval :: (string | AST) -> Either EvalError a */
   __functor = self: self.eval;
@@ -41,18 +35,4 @@ rec {
     store :: string -> a */
     store = modules.store.evalStore;
   };
-
-  # Test both AST and Store eval.
-  _tests = with tests; extendSuite (mergeSuites modules) (suite {
-    eval = {
-      ast = {
-        const = expect.eq (eval.ast "1").right 1;
-        add = expect.eq (eval.ast "1 + 1").right 2;
-      };
-      store = {
-        const = expect.eq (eval.store "1") 1;
-        add = expect.eq (eval.store "1 + 1") 2;
-      };
-    };
-  });
 }

@@ -1,7 +1,9 @@
-{ lib, collective-lib, ... }:
+{ lib, collective-lib, nix-reflect, ... }:
 
 with collective-lib.typed;
-rec {
+let
+  inherit (nix-reflect) parser;
+in rec {
   checkTypes = all (T: T ? check || isbuiltinName T);
   
   assertIs = T: a:
