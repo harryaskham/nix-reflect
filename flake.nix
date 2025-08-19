@@ -18,7 +18,14 @@
         reflectLib = import ./lib { inherit inputs pkgs; };
       in {
         lib = reflectLib;
-        devShells.default = pkgs.mkShell { };  
+        devShells = rec {
+          default = test;
+          test = pkgs.mkShell (rec {
+            shellHook = ''
+              source ./scripts/eval.sh
+            '';
+          });
+        };
       }
     ) // {
       inherit inputs;

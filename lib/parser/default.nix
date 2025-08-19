@@ -1,4 +1,5 @@
 { lib,
+  nix-reflect,
   collective-lib,
   nix-parsec,
   ...
@@ -7,6 +8,7 @@
 let
   typed = collective-lib.typed;
   log = collective-lib.log;
+  debuglib = nix-reflect.debuglib;
 in 
   with typed;
   assert (assertMsg (builtins.hasAttr "lib" nix-parsec) "nix-parsec.lib.parsec is not available: ${_p_ nix-parsec}");
@@ -763,7 +765,7 @@ let this = rec {
   read = rec {
     fileFromAttrPath = attrPath: file: args:
       let expr = import file args;
-          pos = typed.pathPos attrPath expr;
+          pos = debuglib.pathPos attrPath expr;
       in fileFrom pos.line pos.column file;
 
     fileFrom = line: column: path:
@@ -1070,13 +1072,16 @@ let this = rec {
 
     readTests = {
       fileFromAttrPath = let
-        result = read.fileFromAttrPath [ "__testData" "deeper" "anExpr" ] ./default.nix { inherit lib collective-lib nix-parsec; };
+        result = 
+          read.fileFromAttrPath 
+            [ "__testData" "deeper" "anExpr" ] 
+              ./default.nix { inherit lib collective-lib nix-parsec nix-reflect; };
       in expect.eq (builtins.typeOf result) "string";
     };
 
   };
 
-  # DO NOT MOVE - Test data for read tests
+  # DO NOT MOVE - Test data for read tests must be at top-level for attrpath inspection
   __testData = {
     deeper = {
       anExpr = (((with {a = 1;}; assert true; x:
