@@ -21,8 +21,16 @@ function with-lib() {
 
 function run-tests() {
   if [[ -z "$1" ]]; then
-    with-lib "lib._tests.run {}"
+    with-lib "lib._tests.run {}" --raw
   else
-    with-lib "lib.$1._tests.run {}"
+    with-lib "lib.$1._tests.run {}" --raw
+  fi
+}
+
+function debug-tests() {
+  if [[ -z "$1" ]]; then
+    with-lib "lib._tests.debug {}" --raw
+  else
+    with-lib "lib.$1._tests.debug {}" --raw
   fi
 }
