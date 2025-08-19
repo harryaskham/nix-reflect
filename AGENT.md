@@ -5,18 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ### Testing
-- `./test.sh` - Enter development shell and run tests
-- `nix develop .#test` - Enter development shell directly
-- `run-tests` - Run all tests (available in dev shell via scripts/eval.sh)
-- `run-tests parser` - Run parser-specific tests
-- `run-tests eval` - Run evaluator-specific tests
-- `with-lib "lib.parser.parse \"1 + 1\""` - Evaluate expressions using the library
-
-### Development Shell
-The project uses a Nix flake development environment:
-- `nix develop` enters the default development shell
-- Shell automatically sources `./scripts/eval.sh` which provides helper functions
-- `with-lib` function evaluates expressions against the library: `with-lib "EXPR"`
+- Utils exposed automatically via `direnv`:
+  - `run-tests` for all tests
+  - `run-tests parser` (or e.g `run-tests eval.monad`) for single module tests
+  - `debug-tests` as above but aborts on error showing stack traces
+  - `with-lib "lib.parser.parse \"1 + 1\""` - Evaluate expressions using the library
 
 ## Architecture Overview
 

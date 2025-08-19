@@ -16,7 +16,8 @@ function maybe-bootstrap-cursor-agent() {
 function with-lib() {
   EXPR="$1"
   shift
-  nix eval --show-trace --apply "lib: $EXPR" $@ .#lib.x86_64-linux
+  INSTALLABLE=".#lib.x86_64-linux"
+  nix eval --impure --show-trace --apply "lib: $EXPR" ${@} $INSTALLABLE
 }
 
 function run-tests() {

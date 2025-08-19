@@ -203,7 +203,7 @@ in rec {
       {state = get;}
       {attrsList = {_, ...} @ ctx: _.traverse (binding: evalRecBinding binding ctx) bindings;}
       {attrs = {_, attrsList}: _.pure (listToAttrs (concatLists attrsList));}
-      ({_, attrs, state, ...}: _.set (EvalState (state.scope // attrs)))
+      ({_, attrs, state, ...}: _.appendScope attrs)
       ({_, attrsList, attrs, state, ...}: _.guard (i <= size bindings) (RuntimeError ''
         Recursive binding list evaluation failed to complete at iteration ${toString i}:
           ${_ph_ bindings}

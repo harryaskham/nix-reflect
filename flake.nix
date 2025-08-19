@@ -19,11 +19,8 @@
       in {
         lib = reflectLib;
         devShells = rec {
-          default = test;
-          test = pkgs.mkShell (rec {
-            shellHook = ''
-              source ./scripts/eval.sh
-            '';
+          default = pkgs.mkShell (rec {
+            buildInputs = with pkgs; [ direnv ];
           });
         };
       }
