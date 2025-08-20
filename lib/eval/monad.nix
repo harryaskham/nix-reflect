@@ -390,6 +390,7 @@ in rec {
 
   pure = x: {_, ...}: _.pure x;
   throws = e: {_, ...}: _.throws e;
+  guard = cond: e: {_, ...}: _.guard cond e;
   while = msg: {_, ...}: _.while msg;
   whileV = v: msg: {_, ...}: _.whileV v msg;
 
