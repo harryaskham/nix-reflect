@@ -200,11 +200,10 @@ in rec {
   evalRecBindingList_ = i: bindings: {_, ...}:
     _.do
       (while "evaluating 'bindings' node-list recursively, iteration ${toString i}")
-      {state = get;}
-      {attrsList = {_, ...} @ ctx: _.traverse (binding: evalRecBinding binding ctx) bindings;}
+      {attrsList = {_, ...}: _.traverse evalRecBinding bindings;}
       {attrs = {_, attrsList}: _.pure (listToAttrs (concatLists attrsList));}
-      ({_, attrs, state, ...}: _.appendScope attrs)
-      ({_, attrsList, attrs, state, ...}: _.guard (i <= size bindings) (RuntimeError ''
+      ({_, attrs, ...}: _.appendScope attrs)
+      ({_, attrsList, attrs, ...}: _.guard (i <= size bindings) (UnknownIdentifierError ''
         Recursive binding list evaluation failed to complete at iteration ${toString i}:
           ${_ph_ bindings}
 
@@ -213,13 +212,10 @@ in rec {
 
         attrs:
           ${_ph_ attrs}
-
-        state:
-          ${_ph_ state}
       ''))
       ({_, attrs, ...} @ ctx: 
         if size bindings == size attrs then _.pure attrs
-        else evalRecBindingList_ (i + 1) bindings ctx);
+        else _.bind (evalRecBindingList_ (i + 1) bindings));
 
   # Type-check binary operation operands
   # checkBinaryOpTypes :: String -> [TypeSet] -> a -> a -> Eval Unit
@@ -643,7 +639,7 @@ in rec {
       _0000_supersmoke = solo (testRoundTrip "1" 1);
 
       _000_failing = solo {
-        _1_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
+        _15_recAttrSetNestedRec = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
       };
 
       _00_smoke = solo {
@@ -661,11 +657,11 @@ in rec {
         _11_inheritsConst = testRoundTrip "{ inherit ({a = 1;}) a; }" {a = 1;};
         _12_recAttrSetNoRecursion = testRoundTrip "rec { a = 1; }" {a = 1;};
         _13_recAttrSetRecursion = testRoundTrip "rec { a = 1; b = a; }" {a = 1; b = 1;};
-        #_14_recAttrSetNested = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
-        _15_letIn = testRoundTrip "let a = 1; in a" 1;
-        _16_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
-        _17_withs = testRoundTrip "with {a = 1;}; a" 1;
-        _18_withsNested = testRoundTrip "with {a = 1;}; with {b = 2;}; [a b]" [1 2];
+        _14_recAttrSetNested = testRoundTrip "rec { a = 1; b = { c = a; }; }" { a = 1; b = { c = 1; };};
+        _16_letIn = testRoundTrip "let a = 1; in a" 1;
+        _17_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
+        _18_withs = testRoundTrip "with {a = 1;}; a" 1;
+        _19_withsNested = testRoundTrip "with {a = 1;}; with {b = a + 1;}; [a b]" [1 2];
       };
 
       _01_allFeatures =
