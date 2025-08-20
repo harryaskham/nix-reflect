@@ -499,7 +499,7 @@ in rec {
                 else (this.throws e);
 
               foldM = this: f: initAcc: xs:
-                let startM = this.bind ({_}: _.pure initAcc);
+                let startM = this.pure initAcc;
                 in fold.left (accM: a: accM.bind ({_, _a}: _.bind (f _a a))) startM xs;
 
               # sequenceM :: [Eval a] -> Eval [a]
