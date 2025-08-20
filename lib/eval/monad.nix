@@ -501,7 +501,7 @@ in rec {
 
               foldM = this: f: initAcc: xs:
                 let startM = this.bind ({_}: _.pure initAcc);
-                in fold.left (accM: a: accM.bind ({_, _a}: f _a a)) startM xs;
+                in fold.left (accM: a: accM.bind ({_, _a}: _.bind (f _a a))) startM xs;
 
               #foldM = this: f: initAcc: xs:
               #  this.bind ({_, ...}:
@@ -573,6 +573,14 @@ in rec {
   get = {_, ...}: _.bind _.get;
   set = state: {_, ...}: _.bind (_.set state);
   modify = f: {_, ...}: _.bind (_.modify f);
+
+  saveState = f: {_, ...}:
+    _.do
+      (while "with saved state")
+      {state = get;}
+      {a = f;}
+      ({_, state, ...}: _.bind (_.set state))
+      ({_, a, ...}: _.pure a);
 
   saveScope = f: {_, ...}:
     _.do

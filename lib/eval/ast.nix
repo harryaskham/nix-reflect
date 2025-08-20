@@ -47,12 +47,15 @@ in rec {
   evalM = expr:
     let parsed = parse expr;
     in with (log.v 2).call "evalM" expr ___;
-    (((
-      (Eval.pure unit)
-      .bind (whileV 1 "evaluating parsed AST node: ${toString parsed}"))
-      .bind (set initEvalState))
-      .bind (evalNodeM parsed))
-      .bind ({_, _a, ...}: _.pure (return _a));
+    {_, ...}: _.do
+      (whileV 1 "evaluating parsed AST node: ${toString parsed}")
+      (set initEvalState)
+      {result = evalNodeM parsed;}
+      ({_, result, ...}: _.pure (return (maybeConvertLambda result)));
+
+  maybeConvertLambda = x:
+    if isEvaluatedLambda x then x.asLambda
+    else x;
 
   /* Main monadic eval entrypoint.
   evalNodeM :: AST -> Eval a */
@@ -406,20 +409,24 @@ in rec {
       {cond = evalNodeM node.cond;}
       ({_, cond}:
         if cond 
-        then evalNodeM node."then" 
-        else evalNodeM node."else");
+        then _.bind (evalNodeM node."then")
+        else _.bind (evalNodeM node."else"));
 
   paramName = param: param.name.name;
   defaultParamAttrs = param: filter (paramAttr: paramAttr.nodeType == "defaultParam") param.attrs;
   requiredParamAttrs = param: filter (paramAttr: paramAttr.nodeType != "defaultParam") param.attrs;
 
-  getDefaultLambdaScope = param: {_, ...}:
-    _.traverse
-      (paramAttr: 
-        _.do
-          {default = evalNodeM paramAttr.default;}
-          ({_, default}: _.pure { ${paramName paramAttr} = default;}))
-      (defaultParamAttrs param);
+  # TODO: Recursive defaults won't see each other here maybe
+  getDefaultLambdaScope = param:
+    {_, ...}: _.do
+      {defaults =
+        _.traverse
+          (paramAttr:
+            _.do
+              {default = evalNodeM paramAttr.default;}
+              ({_, default}: _.pure { ${paramName paramAttr} = default;}))
+          (defaultParamAttrs param);}
+      ({_, defaults, ...}: _.pure (mergeAttrsList defaults));
 
   # Return any extra scope bound by passing in the arg to the param.
   # evalLambdaParams :: AST -> a -> Eval Scope
@@ -455,47 +462,56 @@ in rec {
               ({_, defaults, ...}: _.pure (defaults // arg) );
       });
 
+  isEvaluatedLambda = x: x ? __isEvaluatedLambda;
+  EvaluatedLambda = state: param: body: lib.fix (self: {
+    __isEvaluatedLambda = true;
+    inherit state param body;
+
+    # Continue evaluating inside the Eval monad
+    # Do not leak any scope updates inside the application to the outside
+    apply = arg:
+      saveScope ({_}: _.do
+        (set state)
+        (appendScopeM (evalLambdaParams self.param arg))
+        (evalNodeM self.body));
+
+    # Convert to a regular Nix lambda
+    asLambda = arg:
+      let e =
+        (Eval.do
+          (self.apply arg))
+        .run_ (EvalState.mempty {});
+      in e.case {
+        Left = _: e;
+        Right = a: a;
+      };
+  });
+
   # Evaluate a lambda expression
-  # evalLambda :: AST -> Eval Function
+  # evalLambda :: AST -> Eval EvaluatedLambda
   evalLambda = node: {_, ...}:
     _.do
       (while "evaluating 'lambda' node")
       {state = get;}
-      ({_, state, ...}: _.pure (
-        # Bind arg to create an actual lambda.
-        arg: 
-          let bodyM = 
-            # Start from scratch inside the lambda since we don't
-            # inherit scope.
-            Eval.do
-              (appendScopeM (evalLambdaParams node.param arg))
-              (evalNodeM node.body);
-          in
-            # Actually have to run the Eval monad here to get
-            # correct runtime behaviour.
-            # Can't return a monad in the general case as this
-            # might be evaluated in Eval and later applied outside of the Eval monad.
-            # However we return an unwrapped EvalError if one occurs which
-            # we can throw if we apply during Eval.
-            let e = bodyM.run_ state;
-            #in if isLeft e then e.left else e.right.a
-            in e.case {
-              Left = _: e;
-              Right = a: a;
-            }
-        ));
+      ({_, state}: _.pure (EvaluatedLambda state node.param node.body));
 
-  # Evaluate function application. If the function was a lambda constructed by
-  # eval, lift any error returned to the top level.
+  # applyOne :: (EvaluatedLambda | lambda) -> AST -> Eval a
+  applyOne = func: argNode: {_, ...}:
+    _.do
+      (while "applying function to argument")
+      {arg = evalNodeM argNode;}
+      ({_, arg}:
+        if isEvaluatedLambda func
+        then _.bind (func.apply arg)
+        else _.pure (func arg));
+
+  # Evaluate function application.
   # evalApplication :: AST -> Eval a
   evalApplication = node: {_, ...}:
     _.do
       (while "evaluating 'application' node")
       {func = evalNodeM node.func;}
-      {args = traverse evalNodeM node.args;}
-      {result = {_, func, args, ...}: _.pure (ap.list func args);}
-      ({_, result, ...}: _.guard (!(is EvalError result)) result)
-      ({_}: _.pure result);
+      ({_, func, ...}: _.foldM applyOne func node.args);
 
   bindingToAttrs = binding: {_, ...}:
     _.do
@@ -636,13 +652,9 @@ in rec {
     # Tests for evalAST round-trip property
     evalAST = {
 
-      _0000_supersmoke = solo (testRoundTrip "1" 1);
+      _000_supersmoke = testRoundTrip "1" 1;
 
-      _000_failing = solo {
-        _15_recAttrSetNestedRec = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
-      };
-
-      _00_smoke = solo {
+      _00_smoke = {
         _00_int = testRoundTrip "1" 1;
         _01_float = testRoundTrip "1.0" 1.0;
         _02_string = testRoundTrip ''"hello"'' "hello";
@@ -658,6 +670,7 @@ in rec {
         _12_recAttrSetNoRecursion = testRoundTrip "rec { a = 1; }" {a = 1;};
         _13_recAttrSetRecursion = testRoundTrip "rec { a = 1; b = a; }" {a = 1; b = 1;};
         _14_recAttrSetNested = testRoundTrip "rec { a = 1; b = { c = a; }; }" { a = 1; b = { c = 1; };};
+        _15_recAttrSetNestedRec = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
         _16_letIn = testRoundTrip "let a = 1; in a" 1;
         _17_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         _18_withs = testRoundTrip "with {a = 1;}; a" 1;
@@ -665,7 +678,7 @@ in rec {
       };
 
       _01_allFeatures =
-        skip (
+        (
         let 
           # Test all major language constructs in one expression
           expr = ''
@@ -739,20 +752,40 @@ in rec {
       };
 
       # Let expressions
-      _10_letExpressions = skip {
+      _10_letExpressions = {
         simple = testRoundTrip "let x = 1; in x" 1;
         multiple = testRoundTrip "let a = 1; b = 2; in a + b" 3;
         nested = testRoundTrip "let x = 1; y = let z = 2; in z + 1; in x + y" 4;
       };
 
       # Functions (simplified tests since function equality is complex)  
-      _11_functions = skip {
+      _11_functions = {
+        returnNixLambda =
+          let result = evalAST "(x: builtins.add) {}";
+          in expect.eq {
+            isFunction = isFunction result.right;
+            ap_40_2 = result.right 40 2;
+          } {
+            isFunction = true;
+            ap_40_2 = 42;
+          };
+        applyNixLambda = testRoundTrip "(x: builtins.add) {} 40 2" 42;
+        returnEvaluatedLambda =
+          let result = evalAST "(x: x + 2)";
+          in expect.eq {
+            isFunction = isFunction result.right;
+            ap_40 = result.right 40;
+          } {
+            isFunction = true;
+            ap_40 = 42;
+          };
+        applyEvaluatedLambda = testRoundTrip "(x: x + 2) 40" 42;
         identity = testRoundTrip "let f = x: x; in f 42" 42;
         const = testRoundTrip "let f = x: y: x; in f 1 2" 1;
       };
 
       # Attribute access
-      _12_attrAccess = skip {
+      _12_attrAccess = {
         letIn = testRoundTrip "let xs = { a = 42; }; in xs.a" 42;
         simple = testRoundTrip "{ a = 42; }.a" 42;
         withDefaultYes = testRoundTrip "{ a = 42; }.a or 0" 42;
@@ -798,7 +831,7 @@ in rec {
       };
 
       # Import expressions - basic import tests
-      _16_importExpressions = skip {
+      _16_importExpressions = {
         # Import self test (simplified)
         importSelf = testRoundTrip "let path = ./default.nix; in true" true;
         paths = {
@@ -809,7 +842,7 @@ in rec {
         importNixpkgsLib = testRoundTrip "(import <nixpkgs/lib>).isBool true" true;
         importNixpkgsLibVersion =
           expect.noLambdasEq 
-            ((eval.ast "(import <nixpkgs/lib>).version").fmap isString)
+            ((evalAST "(import <nixpkgs/lib>).version").fmap isString)
             ((Either EvalError "bool").pure true);
       };
 
@@ -829,10 +862,8 @@ in rec {
 
       # Self-parsing test
       _18_selfParsing = {
-        parseParserFile = let 
-          # Skip self-parsing test for now as it requires more advanced Nix constructs
-          result = { type = "success"; };
-        in expect.eq result.type "success";
+        parseParserFile =
+          expect.True ((evalAST (builtins.readFile ./ast.nix)) ? right);
       };
     };
 
