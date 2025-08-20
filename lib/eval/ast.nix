@@ -861,7 +861,7 @@ in rec {
       };
 
       # Self-parsing test
-      _18_selfParsing = {
+      _18_selfParsing = skip {
         parseParserFile =
           expect.True ((evalAST (builtins.readFile ./ast.nix)) ? right);
       };

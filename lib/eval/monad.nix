@@ -455,7 +455,6 @@ in rec {
             __isEval = true;
             __toString = self: _b_ "Eval ${A} (${_ph_ self.e})";
 
-            # TODO: Add s_ for trackign strict state only when running the actual computation
             inherit S E A s e;
 
             __unbound = {
@@ -502,13 +501,6 @@ in rec {
               foldM = this: f: initAcc: xs:
                 let startM = this.bind ({_}: _.pure initAcc);
                 in fold.left (accM: a: accM.bind ({_, _a}: _.bind (f _a a))) startM xs;
-
-              #foldM = this: f: initAcc: xs:
-              #  this.bind ({_, ...}:
-              #    fold.left
-              #      (accM: x: accM.bind({_, _a, ...}: f _a x))
-              #      (this.pure initAcc)
-              #      xs);
 
               # sequenceM :: [Eval a] -> Eval [a]
               sequenceM = this:
