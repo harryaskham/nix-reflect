@@ -14,7 +14,7 @@ lib.fix (self:
       };
     };
     collective-lib = collective-public.lib.${pkgs.system}.withTraceOpts {
-      traceLevel = 0;
+      traceLevel = 1;
     };
     nix-parsec = inputs.nix-parsec or {
       # nix eval --raw .#inputs.nix-parsec.outPath 2>/dev/null

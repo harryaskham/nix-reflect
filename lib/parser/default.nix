@@ -743,7 +743,7 @@ let this = rec {
 
   parseWith = p: s: parsec.runParser p s;
   parseExpr = s:
-    with (log.v 1).call "parseExpr" s ___;
+    with (log.v 2).call "parseExpr" s ___;
     return (parseWith p.exprEof s);
 
   printParseError = printParseError_ "" true true;

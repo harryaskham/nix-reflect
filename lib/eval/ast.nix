@@ -418,14 +418,14 @@ in rec {
   evalOrOperation = node: {_, ...}:
     (_.do
       (while "evaluating 'or' node")
-      ({_}: _.guard (node.lhs.nodeType == "binaryOp" && node.lhs.op == ".") (RuntimeError ''
+      (guard (node.lhs.nodeType == "binaryOp" && node.lhs.op == ".") (RuntimeError ''
         Unsupported 'or' after non-select: ${node.lhs.nodeType} or ...
       ''))
       (evalNodeM node.lhs))
     .catch ({_, _e}: _.do
-        (while "Handling missing attribute in 'or' node")
-        ({_}: _.guard (MissingAttributeError.check _e) _e)
-        (evalNodeM node.rhs));
+      (while "Handling missing attribute in 'or' node")
+      (guard (MissingAttributeError.check _e) _e)
+      (evalNodeM node.rhs));
 
   # evalUnaryOp :: AST -> Eval a
   evalUnaryOp = node: {_, ...}:
@@ -443,13 +443,13 @@ in rec {
       (while "evaluating 'conditional' node")
       {cond = evalNodeM node.cond;}
       ({_, cond}: _.do
-        ({_}: _.guard (lib.isBool cond) (TypeError ''
+        (guard (lib.isBool cond) (TypeError ''
           if: got non-bool condition of type ${lib.typeOf cond}:
             ${_ph_ cond}
         ''))
-        ({_}: if cond
-              then _.bind (evalNodeM node."then")
-              else _.bind (evalNodeM node."else")));
+        (if cond
+         then evalNodeM node."then"
+         else evalNodeM node."else"));
 
   paramName = param: param.name.name;
   defaultParamAttrs = param: filter (paramAttr: paramAttr.nodeType == "defaultParam") param.attrs;
@@ -1232,7 +1232,7 @@ in rec {
           inArithmetic = testRoundTrip "(if true then 1 else 2) + 3" 4;
           asComparison = testRoundTrip "(if true then 1 else 2) == 1" true;
         };
-        edgeCases = solo {
+        edgeCases = {
           sameTypeResults = testRoundTrip "if true then 1 else 1" 1;
           differentTypes = testRoundTrip ''if true then 1 else "hello"'' 1;
           complexExpressions = testRoundTrip "if (let x = 1; in x == 1) then (1 + 2) else (3 * 4)" 3;
