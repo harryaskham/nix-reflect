@@ -37,9 +37,17 @@ function debug-tests() {
 }
 
 function run-test() {
+  if [[ -z "$2" ]]; then
+    with-lib "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.runOne))" --raw
+  else
     with-lib "lib.$1._tests.runOne.$2 {} {}" --raw
+  fi
 }
 
 function debug-test() {
+  if [[ -z "$2" ]]; then
+    with-lib "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.debugOne))" --raw
+  else
     with-lib "lib.$1._tests.debugOne.$2 {} {}" --raw
+  fi
 }

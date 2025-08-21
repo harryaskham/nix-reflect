@@ -1222,7 +1222,7 @@ in rec {
           emptyListCondition = testRoundTrip "if [] then 1 else 2" 2;
           attrCondition = testRoundTrip "if {a = 1;} then 1 else 2" 1;
           emptyAttrCondition = testRoundTrip "if {} then 1 else 2" 2;
-          nullCondition = testRoundTrip "if null then 1 else 2" 2;
+          nullCondition = expectEvalError TypeError "if null then 1 else 2";
         };
         contextual = {
           inLet = testRoundTrip "let x = true; in if x then 1 else 2" 1;

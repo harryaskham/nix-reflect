@@ -502,7 +502,7 @@ let this = rec {
       fmap (composeMany [N.path head]) (matching ''((\.?\.?|~)(/[-_a-zA-Z0-9\.]+))+''));
 
     anglePath = mkParser "anglePath" (
-      (fmap (composeMany [N.anglePath head (drop 1)]) (matching ''<([^>]+)>'')));
+      (fmap (composeMany [N.anglePath head (drop 1)]) (matching ''<([^ >]+)>'')));
 
     path = mkParser "path" (choice [absOrRelPath anglePath]);
 
@@ -726,7 +726,9 @@ let this = rec {
   };
 
   parseWith = p: s: parsec.runParser p s;
-  parseExpr = parseWith p.exprEof;
+  parseExpr = s:
+    with (log.v 1).call "parseExpr" s ___;
+    return (parseWith p.exprEof s);
 
   printParseError = printParseError_ "" true true;
   printParseError_ = prefix: isFirst: isLast: e:
@@ -748,25 +750,27 @@ let this = rec {
 
   # Parse a string down to an AST, or leave an AST untouched.
   # Throw if not a string or AST, or if the parse fails.
-  parse = dispatch {
-    string = s:
-      let result = parseExpr s;
-      in if result.type == "success" then result.value else _throw_ ''
-        Failed to parse AST:
+  parse = x:
+    with (log.v 1).call "parse" x ___;
+    return (flip dispatch x {
+      string = s:
+        let result = parseExpr s;
+        in if result.type == "success" then result.value else _throw_ ''
+          Failed to parse AST:
 
-          Expression:
-            ${s}
+            Expression:
+              ${s}
 
-          Result:
-            ${_h_ (printParseError result.value)}
-      '';
-    set = node: 
-      assert that (isAST node) ''
-        parse: expected string or AST, got:
-          ${_pd_ 2 node}
-      '';
-      node;
-  };
+            Result:
+              ${_h_ (printParseError result.value)}
+        '';
+      set = node:
+        assert that (isAST node) ''
+          parse: expected string or AST, got:
+            ${_pd_ 2 node}
+        '';
+        node;
+    });
 
   read = rec {
     fileFromAttrPath = attrPath: file: args:
@@ -892,6 +896,27 @@ let this = rec {
               (withExpectedSrc "true " (N.identifier "true")) 
               (withExpectedSrc "if false then 1 else 2 " (N.conditional (withExpectedSrc "false " (N.identifier "false")) (withExpectedSrc "1 " (N.int 1)) (withExpectedSrc "2 " (N.int 2))))
               (withExpectedSrc "3" (N.int 3))));
+          binOps =
+            expectSuccess
+              "if 1 < 2 && 3 > 2 then 1 else 0"
+              (withExpectedSrc "if 1 < 2 && 3 > 2 then 1 else 0"
+                (N.conditional
+                  (withExpectedSrc "1 < 2 && 3 > 2 "
+                    (N.binaryOp
+                      (withExpectedSrc "1 < 2 "
+                        (N.binaryOp
+                          (withExpectedSrc "1 " (N.int 1))
+                          "<"
+                          (withExpectedSrc "2 " (N.int 2))))
+                      "&&"
+                      (withExpectedSrc "3 > 2 "
+                        (N.binaryOp
+                          (withExpectedSrc "3 " (N.int 3))
+                          ">"
+                          (withExpectedSrc "2 " (N.int 2))))
+                    ))
+                  (withExpectedSrc "1 " (N.int 1))
+                  (withExpectedSrc "0" (N.int 0))));
         };
 
         letIn = {
