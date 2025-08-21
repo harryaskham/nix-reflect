@@ -1850,7 +1850,7 @@ in rec {
           merge = testRoundTrip "{a = 1;} // {b = 2;} // {c = 3;}" {a = 1; b = 2; c = 3;};
           mergeArithmetic = testRoundTrip "{a = 1 + 1;} // {b = 2 * 2;}" {a = 2; b = 4;};
           mergeComparison = testRoundTrip "{a = 1 == 1;} // {b = 2 != 3;}" {a = true; b = true;};
-          precedence = testRoundTrip "{a = 1;} // {b = 2;}.b == 2" true;
+          precedence = expectEvalError TypeError "{a = 1;} // {b = 2;}.b == 2";
         };
         
         comprehensive = {
@@ -1858,7 +1858,7 @@ in rec {
           withAttrs = testRoundTrip "let x = {a = 1; b = 2;}; in x.a + x.b * 2 == 5" true;
           withFunctions = testRoundTrip "(x: y: x + y * 2) 1 3 == 7" true;
           complex = testRoundTrip "let f = x: x * 2; attrs = {val = 3;}; in f attrs.val + 1 == 7" true;
-          deepNesting = testRoundTrip "((1 + 2) * (3 + 4)) == ((2 * 3) + (4 * 5) - 3)" true;
+          deepNesting = testRoundTrip "((1 + 2) * (3 + 4)) == ((2 * 3) + (4 * 5) - 3)" false;
         };
       };
 
