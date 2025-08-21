@@ -341,6 +341,22 @@ let this = rec {
               in spaced (bind lhsParser (lhs: bind rest (rhss:
                 pure (lib.foldl (acc: x: N.binaryOp acc x.op x.rhs) lhs rhss)))));
       in binOpParser;
+    
+    # Right-associative binary operator parser  
+    binOpRight = ops: lhsParser: rhsParser:
+      let opParser = choice (map mkSymParser ops);
+          binOpRightParser =
+             mkParser "binOpRight-${joinSep "-" ops}" (
+              let
+                rest = many (bind opParser (op: bind rhsParser (rhs: pure { inherit op rhs; })));
+                buildRight = lhs: rhss:
+                  if rhss == [] then lhs
+                  else let hd = lib.head rhss;
+                           tl = lib.tail rhss;
+                       in N.binaryOp lhs hd.op (buildRight hd.rhs tl);
+              in spaced (bind lhsParser (lhs: bind rest (rhss:
+                pure (buildRight lhs rhss)))));
+      in binOpRightParser;
 
     # Identifiers and keywords
     identifier =
@@ -659,7 +675,7 @@ let this = rec {
     ]);
 
     mkSelective = p: mkParser "select" (binOp ["."] p attrPath);
-    mkOrive = p0: p1: mkParser "orive" (binOp ["or"] p0 p1);
+    mkOrive = p0: p1: mkParser "orive" (binOpRight ["or"] p0 p1);
 
     select = mkSelective atomWithoutSelect;
     orive = mkOrive select (choice [select atomWithoutSelect]);
