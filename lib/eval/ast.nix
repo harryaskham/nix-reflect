@@ -1214,14 +1214,14 @@ in rec {
           withParens = testRoundTrip "if (true && false) || true then 1 else 0" 1;
         };
         typeVariations = {
-          intConditions = testRoundTrip "if 1 then 42 else 0" 42;
-          zeroCondition = testRoundTrip "if 0 then 1 else 2" 2;
-          stringCondition = testRoundTrip ''if "hello" then 1 else 2'' 1;
-          emptyStringCondition = testRoundTrip ''if "" then 1 else 2'' 2;
-          listCondition = testRoundTrip "if [1] then 1 else 2" 1;
-          emptyListCondition = testRoundTrip "if [] then 1 else 2" 2;
-          attrCondition = testRoundTrip "if {a = 1;} then 1 else 2" 1;
-          emptyAttrCondition = testRoundTrip "if {} then 1 else 2" 2;
+          intConditions = expectEvalError TypeError "if 1 then 42 else 0";
+          zeroCondition = expectEvalError TypeError "if 0 then 1 else 2";
+          stringCondition = expectEvalError TypeError ''if "hello" then 1 else 2'';
+          emptyStringCondition = expectEvalError TypeError ''if "" then 1 else 2'';
+          listCondition = expectEvalError TypeError "if [1] then 1 else 2";
+          emptyListCondition = expectEvalError TypeError "if [] then 1 else 2";
+          attrCondition = expectEvalError TypeError "if {a = 1;} then 1 else 2";
+          emptyAttrCondition = expectEvalError TypeError "if {} then 1 else 2";
           nullCondition = expectEvalError TypeError "if null then 1 else 2";
         };
         contextual = {
@@ -1529,10 +1529,10 @@ in rec {
         
         computed = {
           stringConcat = expectEvalError Abort ''abort ("a " + "msg")'';
-          withArithmetic = expectEvalError Abort ''abort ("error " + toString 42)'';
+          withArithmetic = expectEvalError Abort ''abort ("error " + builtins.toString 42)'';
           conditional = expectEvalError Abort ''abort (if true then "yes" else "no")'';
           fromVariable = expectEvalError Abort ''let msg = "error"; in abort msg'';
-          complex = expectEvalError Abort ''abort ("prefix: " + (toString (1 + 2)))'';
+          complex = expectEvalError Abort ''abort ("prefix: " + (builtins.toString (1 + 2)))'';
         };
         
         typeErrors = {
@@ -1586,7 +1586,7 @@ in rec {
           messageWithNewlines = expectEvalError Abort ''abort "line1\nline2\nline3"'';
           messageWithTabs = expectEvalError Abort ''abort "tab\there"'';
           unicodeMessage = expectEvalError Abort ''abort "λ λ λ"'';
-          numberInMessage = expectEvalError Abort ''abort ("error code: " + toString 404)'';
+          numberInMessage = expectEvalError Abort ''abort ("error code: " + builtins.toString 404)'';
         };
         
         interaction = {
