@@ -35,3 +35,11 @@ function debug-tests() {
     with-lib "lib.$1._tests.debug {}" --raw
   fi
 }
+
+function run-test() {
+    with-lib "lib.$1._tests.runOne.$2 {} {}" --raw
+}
+
+function debug-test() {
+    with-lib "lib.$1._tests.debugOne.$2 {} {}" --raw
+}
