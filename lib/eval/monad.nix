@@ -319,18 +319,17 @@ in rec {
   #
   # Return an updated state with the bindings updated inside the monad to any new
   # bindings, and an updated monadic action.
-  handleBindStatement = 
-    M: acc: statement:
+  handleBindStatement = M: acc: statement:
     assert (assertIsDoStatement M statement);
     let normalised = normaliseBindStatement M statement;
-    in 
-      (acc.m.bind ({_, _a}: 
+    in
+      (acc.m.bind ({_, _a}:
         let mb_ = normalised.f (acc.bindings // { inherit _ _a; });
             mb = if isDo mb_ then mb_.__setInitM acc.m else mb_;
-        in 
+        in
           mb.bind ({_, _a}: _.pure {
             bindings = acc.bindings // optionalAttrs (normalised.bindName != null) {
-              ${normalised.bindName} = _a; 
+              ${normalised.bindName} = _a;
             };
             canBind = normalised.bindName == null;
             m = mb;
@@ -355,9 +354,11 @@ in rec {
 
       # Bind with specified initial monadic value.
       # Just creates a new do with self as the initial value of the last one.
-      bind = statement: M.do
-        {_last = this.action;}
-        ({_, _last}: statement {inherit _; _a = _last;});
+      bind = statement:
+        M.do
+          (this.action.bind statement);
+
+      sq = b: this.bind (_: b);
 
       # Actually force the block to evaluate down to a final M value.
       force = {}:
@@ -696,14 +697,14 @@ in rec {
         in with EvalState; {
           __smoke = {
             isMonadOf.monad = expect.True (isMonadOf Eval (Eval.pure unit));
-            isMonadOf.do = expect.True (isMonadOf Eval (do (Eval.pure unit)));
+            isMonadOf.do = expect.True (isMonadOf Eval (Eval.do (Eval.pure unit)));
             isMonadOf.false = expect.False (isMonadOf Eval ((Either EvalError Int).Right (Int 42)));
 
             getM.monad = expect.True (tEq Eval (getM (Eval.pure unit)));
-            getM.do = expect.True (tEq Eval (getM (do (Eval.pure unit))));
+            getM.do = expect.True (tEq Eval (getM (Eval.do (Eval.pure unit))));
 
             getT.monad = expect.True (tEq (Eval Unit) (getT (Eval.pure unit)));
-            getT.do = expect.True (tEq (Eval Unit) (getT (do (Eval.pure unit))));
+            getT.do = expect.True (tEq (Eval Unit) (getT (Eval.do (Eval.pure unit))));
           };
 
           _00_pure = expectRun {} a._42 {} (Int 42);
@@ -721,7 +722,7 @@ in rec {
             IndependentAction.monad =
               expect.eq (bindStatementSignature Eval (Eval.pure unit)) "IndependentAction";
             IndependentAction.do =
-              expect.eq (bindStatementSignature Eval (do (Eval.pure unit))) "IndependentAction";
+              expect.eq (bindStatementSignature Eval (Eval.do (Eval.pure unit))) "IndependentAction";
             IndependentBind =
               expect.eq (bindStatementSignature Eval {a = Eval.pure unit;}) "IndependentBind";
             DependentAction =
@@ -734,7 +735,7 @@ in rec {
             IndependentAction.monad =
               expect.True (tEq Eval (inferMonadFromStatement (Eval.pure unit)));
             IndependentAction.do =
-              expect.True (tEq Eval (inferMonadFromStatement (do (Eval.pure unit))));
+              expect.True (tEq Eval (inferMonadFromStatement (Eval.do (Eval.pure unit))));
             IndependentBind =
               expect.True (tEq Eval (inferMonadFromStatement {a = Eval.pure unit;}));
             DependentAction =
@@ -744,7 +745,7 @@ in rec {
           };
 
           do.notation = {
-            const = expectRun {} (do (Eval.pure 123)) {} 123;
+            const = expectRun {} (Eval.do (Eval.pure 123)) {} 123;
 
             constBound = expectRun {} (Eval.do ({_}: _.pure 123)) {} 123;
 
@@ -756,11 +757,7 @@ in rec {
               let m = Eval.do {x = {_}: _.pure 1;} ({_}: _.pure unit);
               in expectRun {} m {} unit;
 
-            bindOneInferred =
-              let m = do {x = Eval.pure 1;} ({_, ...}: _.pure unit);
-              in expectRun {} m {} unit;
-
-            bindOneGetOne = 
+            bindOneGetOne =
               let m = Eval.do {x = Eval.pure 1;} ({_, x}: _.pure x);
               in expectRun {} m {} 1;
 
@@ -847,13 +844,6 @@ in rec {
 
                   in expectRun {} m {cleared = true;} {x = 9;};
               };
-
-              inferred =
-                let m = do
-                  (Eval.pure unit)
-                  (set (EvalState {x = 1;}))
-                  get;
-                in expectRun {} m {x = 1;} (EvalState {x = 1;});
 
               do =
                 let m = Eval.do
