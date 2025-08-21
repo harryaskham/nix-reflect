@@ -77,7 +77,7 @@ in with typed; rec {
             "${self.name} (${self.file}:${toString self.line}:${toString self.column})";
         };
 
-      dispatchPos = f: dispatch.def null {
+      dispatchPos = f: dispatch.def (_: null) {
         # If given a set, get positions for all its members
         set = attrs: 
           (Unsafe.mapAttrs (name: _: mkPos name (f name attrs)) attrs);
@@ -174,6 +174,7 @@ in with typed; rec {
     pos = 
       let 
         expectedPosABC = {
+          __isPos = true;
           name = "abc";
           column = 5;
           line = 5;
@@ -181,6 +182,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosDEF = {
+          __isPos = true;
           name = "def";
           column = 5;
           line = 6;
@@ -188,6 +190,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosDeeper = {
+          __isPos = true;
           name = "deeper";
           column = 5;
           line = 7;
@@ -195,6 +198,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosGHI = {
+          __isPos = true;
           name = "ghi";
           column = 7;
           line = 8;
@@ -202,6 +206,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosZ = {
+          __isPos = true;
           name = "z";
           column = 5;
           line = 12;
@@ -209,6 +214,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosB = {
+          __isPos = true;
           name = "b";
           column = 5;
           line = 13;
@@ -216,6 +222,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosA = {
+          __isPos = true;
           name = "a";
           column = 14;
           line = 13;
@@ -223,6 +230,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosZArg = {
+          __isPos = true;
           name = "zArg";
           column = 5;
           line = 16;
@@ -230,6 +238,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosBArg = {
+          __isPos = true;
           name = "bArg";
           column = 5;
           line = 17;
@@ -237,6 +246,7 @@ in with typed; rec {
           __toString = expect.anyLambda;
         };
         expectedPosAArg = {
+          __isPos = true;
           name = "aArg";
           column = 11;
           line = 17;

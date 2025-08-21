@@ -369,7 +369,13 @@ let this = rec {
     # Numbers
     int = mkParser "int" (fmap N.int lexer.decimal);
     float = 
-      let rawFloat = fmap (matches: builtins.fromJSON (head matches)) (matching ''[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?'');
+      let rawFloat =
+            fmap (matches:
+              let s_ = head matches;
+                  # Handle e.g. 0.5 and .5
+                  s = if hasPrefix "." s_ then "0${s_}" else s_;
+              in builtins.fromJSON s)
+              (matching ''[0-9]*\.[0-9]+([eE][+-]?[0-9]+)?'');
       in mkParser "float" (fmap N.float rawFloat);
 
     # Strings
@@ -683,7 +689,7 @@ let this = rec {
     # Function application such that {}.x or f 1 is f 1, {a = f;} .a or null 1 is f 1
     applicative = mkParser "applicative" (choice [
       (mkApplicative orive)
-      atom
+      unary
     ]);
 
     propagatingBinOp = ops: p:
@@ -926,6 +932,8 @@ let this = rec {
           comparison = (expectSuccess_ "1 < 2 && 2 <= 3");
           stringConcat = (expectSuccess_ "\"a\" + \"b\"");
           stringConcatParen = (expectSuccess_ "(\"a\" + \"b\")");
+          not = expectSuccess_ "!true";
+          notExpr = expectSuccess_ " !(-(1) == 1)";
         };
 
         # Complex expressions

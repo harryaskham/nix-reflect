@@ -143,21 +143,33 @@ in rec {
     };
   };
 
+  # TODO: cwd, other impure state
   initEvalState = EvalState initScope;
-  initScope = {
+  initScope = lib.fix (self: {
     NIX_PATH = {
       nixpkgs = <nixpkgs>;
     };
+    PWD = /tmp/pwd;
+    HOME = /tmp/home;
 
     true = true;
     false = false;
     null = null;
-    builtins = (removeAttrs builtins ["builtins"]);
-    derivation = derivation;
-    import = builtins.import;
-    throw = throw;
-    abort = abort;
-  };
+
+    # Override builtins with library versions
+    builtins = (removeAttrs builtins ["builtins"]) // (with parser; {
+      "throw" = N.throwExpr;
+      "abort" = N.abortExpr;
+      "assert" = N.assertExpr;
+      # TODO: Native import
+      #"import" = ...
+    });
+    # Expose same builtins on top-level as Nix
+    inherit (self.builtins) "derivation" "import" "throw" "abort";
+
+    # Expose minimal lib to avoid error blowup
+    lib = { inherit (lib) isFunction; };
+  });
 
   Unit = {
     __toString = self: "Unit";
@@ -176,9 +188,6 @@ in rec {
       void: expected monad but got ${getT m}
     '';
     m.bind ({_}: _.pure unit);
-
-  when = cond: m: if cond then m else void m;
-  unless = cond: m: if cond then void m else m;
 
   isDo = x: x ? __isDo;
 
@@ -327,11 +336,6 @@ in rec {
             m = mb;
           })));
 
-  # Infer monad from first statement
-  do = statement: 
-    let M = inferMonadFromStatement statement;
-    in mkDo M (M.pure unit) [] statement;
-
   # Do-notation functor that simply stores the statements given to it
   # When bound, it runs the statements in order to produce the monadic value
   # on which to call bind.
@@ -393,6 +397,9 @@ in rec {
   guard = cond: e: {_, ...}: _.guard cond e;
   while = msg: {_, ...}: _.while msg;
   whileV = v: msg: {_, ...}: _.whileV v msg;
+  when = cond: m: {_, ...}: _.when cond m;
+  unless = cond: m: {_, ...}: _.unless cond m;
+
 
   # Check if a value is a monad.
   # i.e. isMonad (Eval.pure 1) -> true
@@ -488,9 +495,9 @@ in rec {
               do = this: statement: mkDo Eval this [] statement;
               pure = this: x: set_e_Right this x;
               fmap = this: f: set_e this (this.e.fmap f);
-              when = this: cond: x: this.bind (_: eval.monad.when cond x);
-              unless = this: cond: x: this.bind (_: eval.monad.unless cond x);
-              whileV = this: v: s: this.bind (_: 
+              when = this: cond: m: if cond then this.bind m else this.pure unit;
+              unless = this: cond: m: if !cond then this.bind m else this.pure unit;
+              whileV = this: v: s: this.bind (_:
                 (log.v v).show "while ${s}"
                 (log.while s this));
               while = this: s: this.whileV 3 s;
