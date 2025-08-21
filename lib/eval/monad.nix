@@ -497,9 +497,12 @@ in rec {
               fmap = this: f: set_e this (this.e.fmap f);
               when = this: cond: m: if cond then this.bind m else this.pure unit;
               unless = this: cond: m: if !cond then this.bind m else this.pure unit;
-              whileV = this: v: s: this.bind (_:
-                (log.v v).show "while ${s}"
-                (log.while s this));
+              whileV = this: v: s:
+                # Add the stack logging to the monadic value itself
+                log.while s (
+                  # Add runtime tracing to the resolution of the bind only
+                  this.bind (_: (log.v v).show "while ${s}" this)
+                );
               while = this: s: this.whileV 3 s;
               guard = this: cond: e: 
                 if cond 
