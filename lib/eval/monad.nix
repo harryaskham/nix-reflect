@@ -502,7 +502,7 @@ in rec {
                 # Add the stack logging to the monadic value itself
                 log.while s (
                   # Add runtime tracing to the resolution of the bind only
-                  this.bind (_: (log.v v).show "while ${s}" this)
+                  this.bind (_: (log.v v).showN "while ${s}" this)
                 );
               while = this: s: this.whileV 3 s;
               guard = this: cond: e: 

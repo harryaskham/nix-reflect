@@ -14,6 +14,7 @@ function maybe-bootstrap-cursor-agent() {
 }
 
 function color() {
+  IFS=''
   while read -r line ; do
     printf "$line\n"
   done
@@ -27,7 +28,10 @@ function with-lib() {
 }
 
 function eval-test-expr() {
-  with-lib "$1" --raw 2>&1 | grep -v "^trace:" | color
+  with-lib "$1" --raw 2>&1 \
+    | sed "s/trace: start_trace(\(.\+\)): /\\\\e[90m[\\1] \\\\e[0m/" \
+    | grep -v "^trace: end_trace$" \
+    | color
 }
 
 function run-tests() {
