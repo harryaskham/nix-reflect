@@ -13,6 +13,12 @@ function maybe-bootstrap-cursor-agent() {
   fi
 }
 
+function color() {
+  while read -r line ; do
+    printf "$line\n"
+  done
+}
+
 function with-lib() {
   EXPR="$1"
   shift
@@ -20,34 +26,38 @@ function with-lib() {
   nix eval --impure --show-trace --apply "lib: $EXPR" ${@} $INSTALLABLE
 }
 
+function eval-test-expr() {
+  with-lib "$1" --raw 2>&1 | grep -v "^trace:" | color
+}
+
 function run-tests() {
   if [[ -z "$1" ]]; then
-    with-lib "lib._tests.run {}" --raw
+    eval-test-expr "lib._tests.run {}"
   else
-    with-lib "lib.$1._tests.run {}" --raw
+    eval-test-expr "lib.$1._tests.run {}"
   fi
 }
 
 function debug-tests() {
   if [[ -z "$1" ]]; then
-    with-lib "lib._tests.debug {}" --raw
+    eval-test-expr "lib._tests.debug {}"
   else
-    with-lib "lib.$1._tests.debug {}" --raw
+    eval-test-expr "lib.$1._tests.debug {}"
   fi
 }
 
 function run-test() {
   if [[ -z "$2" ]]; then
-    with-lib "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.runOne))" --raw
+    eval-test-expr "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.runOne))"
   else
-    with-lib "lib.$1._tests.runOne.$2 {} {}" --raw
+    eval-test-expr "lib.$1._tests.runOne.$2 {} {}"
   fi
 }
 
 function debug-test() {
   if [[ -z "$2" ]]; then
-    with-lib "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.debugOne))" --raw
+    eval-test-expr "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.debugOne))"
   else
-    with-lib "lib.$1._tests.debugOne.$2 {} {}" --raw
+    eval-test-expr "lib.$1._tests.debugOne.$2 {} {}"
   fi
 }

@@ -52,6 +52,7 @@ in rec {
     else x;
 
   /* Main monadic eval entrypoint.
+  Evaluates a node down to its WHNF value.
   evalNodeM :: AST -> Eval a */
   evalNodeM = node:
     with (log.v 3).call "evalNodeM" (toString node) ___;
@@ -558,7 +559,7 @@ in rec {
   evalConditional = node: {_, ...}:
     _.do
       (while "evaluating 'conditional' node")
-      {cond = evalNodeM node.cond;}
+      {cond = forceEvalNodeM node.cond;}
       ({_, cond}: _.do
         (guard (lib.isBool cond) (TypeError ''
           if: got non-bool condition of type ${lib.typeOf cond}:
@@ -1385,7 +1386,6 @@ in rec {
           simple = testRoundTrip "let x = y; y = 1; in x" 1;
           mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
           complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
-          # Skip - self-recursion
           factorial =
             let expr = i: "let f = x: if x == 0 then 1 else x * f (x - 1); in f ${toString i}";
             in {
@@ -1395,10 +1395,9 @@ in rec {
               _3 = testRoundTrip (expr 3) 6;
               _4 = testRoundTrip (expr 4) 24;
             };
-          # Skip - self-recursion
           fibonacci =
             let expr = i: "let fib = n: if n <= 1 then n else fib (n - 1) + fib (n - 2); in fib ${toString i}";
-            in solo {
+            in {
               _0 = testRoundTrip (expr 0) 0;
               _1 = testRoundTrip (expr 1) 1;
               _2 = testRoundTrip (expr 2) 1;
