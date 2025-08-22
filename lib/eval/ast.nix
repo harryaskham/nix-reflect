@@ -886,9 +886,9 @@ in rec {
         _14_recAttrSetNested = testRoundTrip "rec { a = 1; b = { c = a; }; }" { a = 1; b = { c = 1; };};
         _15_recAttrSetNestedRec = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
         _16_letIn = testRoundTrip "let a = 1; in a" 1;
-        #_17_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
+        _17_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
         _18_withs = testRoundTrip "with {a = 1;}; a" 1;
-        #_19_withsNested = testRoundTrip "with {a = 1;}; with {b = a + 1;}; [a b]" [1 2];
+        _19_withsNested = testRoundTrip "with {a = 1;}; with {b = a + 1;}; [a b]" [1 2];
       };
 
       _00_smoke.lazy = solo {
