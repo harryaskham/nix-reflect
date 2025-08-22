@@ -295,7 +295,7 @@ in rec {
     _.do
       (while "evaluating 'attrs' node")
       (if node.isRec 
-      then evalRecBindingList node.bindings
+       then saveScope (evalRecBindingList node.binding)
       else evalBindingList node.bindings);
 
   # Evaluate a binding without failing on missing names.
