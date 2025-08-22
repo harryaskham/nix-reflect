@@ -949,7 +949,7 @@ in rec {
     # Tests for evalAST round-trip property
     evalAST = {
 
-      _00_smoke.strict = solo {
+      _00_smoke.strict = {
         _00_int = testRoundTrip "1" 1;
         _01_float = testRoundTrip "1.0" 1.0;
         _02_string = testRoundTrip ''"hello"'' "hello";
@@ -976,7 +976,7 @@ in rec {
         _21_lambdaClosure = testRoundTrip "let a = 1; f = b: a + b; in let a = 100; in f 2" 3;
       };
 
-      _00_smoke.lazy = solo {
+      _00_smoke.lazy = {
         _00_int = testRoundTripLazy "1" 1;
          _01_float = testRoundTripLazy "1.0" 1.0;
          _02_string = testRoundTripLazy ''"hello"'' "hello";
