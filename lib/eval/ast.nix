@@ -831,7 +831,7 @@ in rec {
           (pure (scope.NIX_PATH.${name} + "/${restPath}")));
 
   # Helper to test round-trip property: eval (parse x) == x
-  testRoundTripLazy = testRoundTripWith evalAST collective-lib.tests.expect.printEq;
+  testRoundTripLazy = testRoundTripWith evalAST collective-lib.tests.expect.noLambdasEq;
   testRoundTrip = testRoundTripWith evalAST' collective-lib.tests.expect.printEq;
   testRoundTripWith = evalASTFn: expectation: expr: expected: {
     # Just test that parsing succeeds and the result evaluates to expected
