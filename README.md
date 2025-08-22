@@ -84,3 +84,7 @@ let
   transformed = ast.mapNode (n: n // { op = "-"; lhs = n.rhs; rhs = n.lhs; });
 in (eval transformed).right  # => -1
 ```
+
+# WIP
+
+- [ ] laziness; proven out with thunks for e.g. list values, not yet used for attrvalues. Need own builtin types Attrs that can have its attributes inspected without forcing it.

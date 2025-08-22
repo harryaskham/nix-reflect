@@ -722,12 +722,6 @@ in rec {
       {func = deeplyEvalNodeM node.func;}
       ({_, func, ...}: _.foldM apply1Node func node.args);
 
-  bindingToAttrs = binding: {_, ...}:
-    _.do
-      {lhs = identifierName binding.lhs;}
-      {rhs = evalNodeM binding.rhs;}
-      ({_, lhs, rhs, ...}: _.pure { ${lhs} = rhs; });
-
   # Evaluate a let expression
   # evalLetIn :: AST -> Eval a
   evalLetIn = node: saveScope ({_}: _.do
@@ -1404,7 +1398,7 @@ in rec {
           # Skip - self-recursion
           fibonacci =
             let expr = i: "let fib = n: if n <= 1 then n else fib (n - 1) + fib (n - 2); in fib ${toString i}";
-            in {
+            in solo {
               _0 = testRoundTrip (expr 0) 0;
               _1 = testRoundTrip (expr 1) 1;
               _2 = testRoundTrip (expr 2) 1;
@@ -1430,7 +1424,7 @@ in rec {
                   };
               in lib.attrValues memo
             '';
-            in testRoundTrip expr [0 1 1 2 3 5 8 13];
+            in (testRoundTrip expr [0 1 1 2 3 5 8 13]);
         };
         shadowing = {
           innerShadowsOuter = testRoundTrip "let x = 1; in let x = 2; in x" 2;
