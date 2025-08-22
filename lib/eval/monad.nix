@@ -72,6 +72,7 @@ in rec {
         __toString = self: "Left ${_p_ e}";
         left = e; 
         case = case this;
+        unwrap = unwrap this;
         fmap = _: this;
       }; in this;
   };
@@ -80,13 +81,14 @@ in rec {
     __toString = self: "(Either ${E} ${A}).Right";
     check = a: a ? __isRight && is A a.right;
     __functor = self: a:
-      assert that (is A a) ''Either.Right: expected type ${A} but got ${a}'';
+      assert that (is A a) ''Either.Right: expected type ${A} but got ${_p_ a}'';
       let this = { 
         __type = Either E A;
         __isRight = true; 
         __toString = self: "Right ${_p_ a}"; 
         right = a; 
         case = case this;
+        unwrap = unwrap this;
         fmap = f: 
           let 
             b = f a;
@@ -99,6 +101,10 @@ in rec {
   isLeft = x: x ? __isLeft;
   isRight = x: x ? __isRight;
   case = e: cases: if isLeft e then cases.Left e.left else cases.Right e.right;
+  unwrap = e: e.case {
+    Left = e: e;
+    Right = a: a;
+  };
 
   EvalError = rec {
     __toString = self: "EvalError";
@@ -379,16 +385,14 @@ in rec {
       action = this.force {};
       run = arg: this.action.run arg;
       run_ = arg: this.action.run_ arg;
+      runEmpty = arg: this.action.runEmpty arg;
+      runEmpty_ = arg: this.action.runEmpty_ arg;
+      runClosure = arg: this.action.runClosure arg;
+      runClosureM = arg: this.action.runClosureM arg;
       mapState = arg: this.action.mapState arg;
       setState = arg: this.action.setState arg;
       mapEither = arg: this.action.mapEither arg;
       catch = arg: this.action.catch arg;
-
-
-      # Bind pure with {} initial state to convert do<M a> to M a
-      #action = this.bind ({_, _a}: _.pure _a);
-      #action = (M.pure unit).bind ({_}: this); #this.bind ({_, _a}: _.pure _a);
-      #inherit (this.action) mapState setState mapEither sq while catch foldM sequenceM traverse;# run run_;
       do = mkDo M this.action [];
     };
     in this;
@@ -563,6 +567,10 @@ in rec {
               run = this: initialState: 
                 this.e.fmap (a: { s = this.s initialState; inherit a; });
               run_ = this: _: this.e;
+              runEmpty = this: _: (this.run (S.mempty {}));
+              runEmpty_ = this: _: ((this.run (S.mempty {})).fmap (r: r.a));
+              runClosure = this: _: (this.runEmpty_ {}).unwrap;
+              runClosureM = this: {_, ...}: _.pure (this.runClosure {});
             };
           };
         # Bind 'this'
@@ -577,22 +585,16 @@ in rec {
   get = {_, ...}: _.bind _.get;
   set = state: {_, ...}: _.bind (_.set state);
   modify = f: {_, ...}: _.bind (_.modify f);
-
-  saveState = f: {_, ...}:
-    _.do
-      (while "with saved state")
-      {state = get;}
-      {a = f;}
-      ({_, state, ...}: _.bind (_.set state))
-      ({_, a, ...}: _.pure a);
+  liftEither = e: {_, ...}: _.liftEither e;
 
   saveScope = f: {_, ...}:
     _.do
-      (while "with scope")
-      {scope = {_}: _.getScope;}
-      {a = {_, ...} @ args: f args;}
-      ({_, scope, ...}: _.setScope scope)
-      ({_, a, ...}: _.pure a);
+      (while "with saved scope")
+      {scope = getScope;}
+      {a = f;}
+      ({_, scope, a, ...}: _.do
+        (setScope scope)
+        (pure a));
 
   setScope = scope: {_, ...}:
     _.do
