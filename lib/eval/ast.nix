@@ -905,14 +905,18 @@ in rec {
          _10_attrPathOr = testRoundTripLazy "{a = 1;}.b or 2" 2;
          _11_inheritsConst = testRoundTripLazy "{ inherit ({a = 1;}) a; }" {a = CODE "int";};
          _12_recAttrSetNoRecursion = testRoundTripLazy "rec { a = 1; }" {a = CODE "int";};
-         _13_recAttrSetRecursion = testRoundTripLazy "rec { a = 1; b = a; }" {a = CODE "int"; b = CODE "int";};
-         _13_recAttrSetRecursionBackwards = testRoundTripLazy "rec { a = b; b = 1; }" {a = CODE "int"; b = CODE "int";};
-         _14_recAttrSetNested = testRoundTripLazy "rec { a = 1; b = { c = a; }; }" { a = CODE "int"; b = { c = CODE "int"; };};
-         _15_recAttrSetNestedRec = testRoundTripLazy "rec { a = 1; b = rec { c = a; }; }" { a = CODE "int"; b = { c = CODE "int"; };};
+         _13_recAttrSetRecursion =
+          testRoundTripLazy "rec { a = 1; b = a; }" {a = CODE "int"; b = CODE "identifier";};
+         _13_recAttrSetRecursionBackwards = 
+           testRoundTripLazy "rec { a = b; b = 1; }" {a = CODE "identifier"; b = CODE "int";};
+         _14_recAttrSetNested = 
+           testRoundTripLazy "rec { a = 1; b = { c = a; }; }" { a = CODE "int"; b = CODE "attrs"; };
+         _15_recAttrSetNestedRec = 
+          testRoundTripLazy "rec { a = 1; b = rec { c = a; }; }" { a = CODE "int"; b = CODE "attrs"; };
          _16_letIn = testRoundTripLazy "let a = 1; in a" 1;
-         #_17_letInNested = testRoundTripLazy "let a = 1; in let b = a + 1; in [a b]" [(CODE "int") (CODE "int")];
-         _18_withs = testRoundTripLazy "with {a = 1;}; a" (CODE "int");
-         #_19_withsNested = testRoundTripLazy "with {a = 1;}; with {b = a + 1;}; [a b]" [(CODE "int") (CODE "int")];
+         _17_letInNested = testRoundTripLazy "let a = 1; in let b = a + 1; in [a b]" [(CODE "identifier") (CODE "identifier")];
+         _18_withs = testRoundTripLazy "with {a = 1;}; a" 1;
+         _19_withsNested = testRoundTripLazy "with {a = 1;}; with {b = a + 1;}; [a b]" [(CODE "identifier") (CODE "identifier")];
       };
 
       _01_allFeatures =
