@@ -168,7 +168,7 @@ in rec {
     inherit (self.builtins) "derivation" "import" "throw" "abort";
 
     # Expose minimal lib to avoid error blowup
-    lib = { inherit (lib) isFunction; };
+    lib = { inherit (lib) isFunction attrValues; };
   });
 
   Unit = {

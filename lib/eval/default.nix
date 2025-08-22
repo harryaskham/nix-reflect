@@ -36,6 +36,8 @@ collective-lib.tests.withMergedSuites modules // {
     store = modules.store.evalStore;
   };
 
+  strict = modules.ast.evalAST';
+
   # Throwing version of eval, discarding the Either type.
   unsafe = expr: (modules.ast.evalAST expr).case {
     Left = e: throw "Eval error: ${e}";
