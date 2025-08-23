@@ -164,18 +164,29 @@ in rec {
     null = null;
 
     # Override builtins with library versions
-    builtins = (removeAttrs builtins ["builtins"]) // (with parser; {
-      "throw" = N.throwExpr;
-      "abort" = N.abortExpr;
-      "assert" = N.assertExpr;
-      # TODO: Native import
-      #"import" = ...
-    });
+    builtins =
+      with nix-reflect.parser; 
+      with nix-reflect.eval.ast;
+      removeAttrs builtins ["builtins"] // {
+        # Move the recursive self-reference to an identifier to enable laziness.
+        "builtins" = N.identifier "builtins";
+        "throw" = N.throwExpr;
+        "abort" = N.abortExpr;
+        "assert" = N.assertExpr;
+        # TODO: Native import
+        #"import" = ...
+        # Start shimming out native versions of key builtins
+        #toString = (Eval.pure unit).bind (NodeThunk (parse "x: x.__toString x"));
+      };
+
     # Expose same builtins on top-level as Nix
     inherit (self.builtins) "derivation" "import" "throw" "abort";
 
     # Expose minimal lib to avoid error blowup
-    lib = { inherit (lib) isFunction attrValues; };
+    lib = {
+      inherit (lib) isFunction attrValues;
+      toString = self.builtins.toString;
+    };
   });
 
   Unit = {

@@ -132,8 +132,10 @@ in rec {
 
   force = x: {_, ...}: _.do
     (while "forcing shallowly")
-    (if isNodeThunk x then x.force
-     else pure x);
+    ( # Force thunks
+      if isNodeThunk x then x.force
+      # Return other values
+      else pure x );
 
   isNodeThunk = x: x ? __isNodeThunk;
 
@@ -691,17 +693,12 @@ in rec {
   defaultParamAttrs = param: filter (paramAttr: paramAttr.nodeType == "defaultParam") param.attrs;
   requiredParamAttrs = param: filter (paramAttr: paramAttr.nodeType != "defaultParam") param.attrs;
 
-  # TODO: Recursive defaults won't see each other here maybe
-  getDefaultLambdaScope = param:
-    {_, ...}: _.do
-      {defaults =
-        _.traverse
-          (paramAttr:
-            _.do
-              {default = evalNodeM paramAttr.default;}
-              ({_, default}: _.pure { ${paramName paramAttr} = default;}))
-          (defaultParamAttrs param);}
-      ({_, defaults, ...}: _.pure (mergeAttrsList defaults));
+  # Don't evaluate the RHS of the ? operator here; store only the AST to allow binding to
+  # supplied values and recursion.
+  getDefaultLambdaScopeASTs = param:
+    mergeAttrsList (for (defaultParamAttrs param) (paramAttr: {
+      ${paramName paramAttr} = paramAttr.default;
+    }));
 
   # Return any extra scope bound by passing in the arg to the param.
   # evalLambdaParams :: AST -> a -> Eval Scope
@@ -710,31 +707,46 @@ in rec {
       (while "evaluating 'lambda' parameters")
       ({_}: switch.on (p: p.nodeType) param {
         # Simple param is just a name, so just bind it to the arg.
-        simpleParam = _.pure { ${paramName param} = arg; };
+        simpleParam = 
+          let scope = { ${paramName param} = arg; };
+          in _.do
+            (appendScope scope)
+            (pure scope);
 
         # Attrset param is a set of names, so bind each to the arg, with defaults handled.
         attrSetParam = 
           let 
             allParamNames = map paramName param.attrs;
             requiredParamNames = map paramName (requiredParamAttrs param);
+            defaultParamNames = map paramName (defaultParamAttrs param);
             suppliedUnknownNames = removeAttrs arg allParamNames;
             requiredUnsuppliedNames = filter (name: !(hasAttr name arg)) requiredParamNames;
+            defaultSuppliedNames = filter (name: (hasAttr name arg)) defaultParamNames;
           in
             _.do
-              ({_}: _.guard (lib.isAttrs arg) (TypeError ''
+              (guard (lib.isAttrs arg) (TypeError ''
                 Expected attrset argument, got ${lib.typeOf arg}:
                   ${_ph_ arg}
               ''))
-              ({_}: _.guard (empty requiredUnsuppliedNames) (RuntimeError ''
+              (guard (empty requiredUnsuppliedNames) (RuntimeError ''
                 Missing required parameters in attrset lambda: ${joinSep ", " requiredUnsuppliedNames}:
                   ${_ph_ param}
               ''))
-              ({_}: _.guard (param.ellipsis || empty suppliedUnknownNames) (RuntimeError ''
+              (guard (param.ellipsis || empty suppliedUnknownNames) (RuntimeError ''
                 Unknown parameters in non-ellipsis attrset lambda: ${joinSep ", " (attrNames suppliedUnknownNames)}:
                   ${_ph_ param}
               ''))
-              {defaults = getDefaultLambdaScope param; }
-              ({_, defaults, ...}: _.pure (defaults // arg) );
+              # First add the concrete supplied values to the scope so that default resolution sees them.
+              (appendScope arg)
+              # Then evaluate a recursive binding list of only those default values that are not already supplied.
+              {defaults =
+                let defaultASTs = removeAttrs (getDefaultLambdaScopeASTs param) defaultSuppliedNames;
+                    bindings = forAttrsToList defaultASTs (k: v: N.assignment (N.identifier k) v);
+                in evalRecBindingList bindings; }
+              # Add these defaults to the scope as well and return the merged scope as an attrset.
+              ({defaults, _}: _.do
+                (appendScope defaults)
+                (pure (defaults // arg)));
       });
 
   # Carrier for lambdas created entirely inside the Eval monad, as opposed to e.g.
@@ -964,7 +976,7 @@ in rec {
     _.do
       (while "evaluating 'interpolation' node")
       {value = forceEvalNodeM node.body;}
-      ({value, _}: coerceToString value);
+      ({value, _}: _.bind (coerceToString value));
 
   # TODO: This needs to operate as a closure
   evalStringPieces = node: {_, ...}:
@@ -1698,7 +1710,7 @@ in rec {
           withDefaults = testRoundTrip "({a ? 1, b}: a + b) {b = 2;}" 3;
           ellipsis = testRoundTrip "({a, ...}: a) {a = 1; b = 2;}" 1;
           defaultOverride = testRoundTrip "({a ? 1}: a) {a = 2;}" 2;
-          complexDefaults = testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3;
+          dependentDefaults = testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3;
           mixedParams = testRoundTrip "({a, b ? 10}: a + b) {a = 5;}" 15;
         };
         
@@ -1762,7 +1774,7 @@ in rec {
           expression = testRoundTrip ''let attr = if true then "a" else "b"; in { a = 42; }.a'' 42;
         };
         
-        errorCases = solo {
+        errorCases = {
           missingAttr = expectEvalError MissingAttributeError "{ a = 1; }.b";
           missingAttrDownstream = expectEvalError MissingAttributeError "let b = {}.a; in b.c or 2";
           missingNested = expectEvalError MissingAttributeError "{ a = { b = 1; }; }.a.c";
@@ -2088,7 +2100,7 @@ in rec {
       };
 
       # String interpolation tests
-      _17_stringInterpolation = skip {
+      _17_stringInterpolation = {
         basic = {
           simple = testRoundTrip ''"hello ''${toString 42}"'' "hello 42";
           multiple = testRoundTrip ''"''${toString 1} + ''${toString 2} = ''${toString 3}"'' "1 + 2 = 3";
