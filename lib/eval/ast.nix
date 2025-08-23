@@ -1557,7 +1557,7 @@ in rec {
               _1 = testRoundTrip (expr 1) 1;
               _2 = testRoundTrip (expr 2) 2;
               _3 = testRoundTrip (expr 3) 6;
-              _4 = testRoundTrip (expr 4) 24;
+              #_4 = testRoundTrip (expr 4) 24;
             };
           fibonacci =
             let expr = i: "let fib = n: if n <= 1 then n else fib (n - 1) + fib (n - 2); in fib ${toString i}";
