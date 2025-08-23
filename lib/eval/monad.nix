@@ -131,6 +131,7 @@ in rec {
   RuntimeError = EvalError "RuntimeError";
   UnknownIdentifierError = EvalError "UnknownIdentifierError";
   MissingAttributeError = EvalError "MissingAttributeError";
+  CatchableMissingAttributeError = EvalError "CatchableMissingAttributeError";
   NixPathError = EvalError "NixPathError";
 
   isEvalError = x: x ? __isEvalError;
@@ -488,7 +489,7 @@ in rec {
 
               setEither = this: e: set_e this e;
               mapEither = this: f: this.setEither (f this.e);
-              liftEither = this: e: if is EvalError e then this.throws e else this.pure e;
+              liftEither = this: e: if isEvalError e then this.throws e else this.pure e;
 
               getScope = this: this.bind getScope;
               setScope = this: newScope: this.bind (setScope newScope);
@@ -500,6 +501,12 @@ in rec {
               do = this: statement: mkDo Eval this [] statement;
               pure = this: x: set_e_Right this x;
               fmap = this: f: set_e this (this.e.fmap f);
+              liftA2 = this: f: aM: bM:
+                this.do
+                  {a = aM;}
+                  {b = bM;}
+                  ({a, b, _}: _.pure (f a b));
+
               when = this: cond: m: if cond then this.bind m else this.pure unit;
               unless = this: cond: m: if !cond then this.bind m else this.pure unit;
               whileV = this: v: s:
@@ -560,7 +567,7 @@ in rec {
               catch = this: handler:
                 if isLeft this.e then 
                   (set_e_Right this unit)
-                  .bind ({_, ...}: handler {inherit _; _e = this.e.left;})
+                  .bind (handler this.e.left)
                 else this;
 
               # Returns (Either EvalError { a :: A, s :: S })
@@ -578,6 +585,7 @@ in rec {
     };
   };
 
+  liftA2 = f: aM: bM: {_, ...}: _.liftA2 f aM bM;
   sequenceM = this: xs: {_, ...}: _.sequenceM xs;
   foldM = f: initAcc: xs: {_, ...}: _.foldM f initAcc xs;
   traverse = f: xs: {_, ...}: _.traverse f xs;
