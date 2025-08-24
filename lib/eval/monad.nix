@@ -163,7 +163,7 @@ in rec {
     __isNodeThunk = true;
     inherit thunkId;
     inherit (node) nodeType;
-    __toString = self: "<CODE>";
+    __toString = self: "<CODE#${toString thunkId}>";
 
     # Force the thunk down to WHNF inside the monad without recent cache access.
     # Retain errors but not state.
@@ -812,21 +812,14 @@ in rec {
       {newScope = newScopeM;}
       ({_, newScope}: _.appendScope newScope);
 
-  CODE = nodeType: {
-    inherit nodeType;
-    __isNodeThunk = true;
-    __toString = collective-lib.tests.expect.anyLambda;
-    force = collective-lib.tests.expect.anyLambda;
-    forceNoCache = collective-lib.tests.expect.anyLambda;
-  };
-
-  CODE_ = thunkId: nodeType: {
+  CODE = thunkId: nodeType: {
     inherit nodeType thunkId;
     __isNodeThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
     force = collective-lib.tests.expect.anyLambda;
     forceNoCache = collective-lib.tests.expect.anyLambda;
   };
+
   _tests = with tests;
     let
       Int = { 
@@ -882,8 +875,9 @@ in rec {
             fmapAfterCatch = catchAfterThrow.fmap (s: s + " then ...");
           };
           expectRun = s: a: s': a': 
-            expect.noLambdasEq
-              (a.run (EvalState {scope = s;})).right
+            let r = (a.run (EvalState {scope = s;})).right;
+            in expect.noLambdasEq
+              (r // { s = EvalState { scope = r.s.scope; };})  # Ignore the thunk cache
               { s = EvalState {scope = s';}; a = a'; };
           expectRunWithThunkCache = s: a: s': tc': a': 
             expect.noLambdasEq
@@ -1274,11 +1268,11 @@ in rec {
                     (NodeThunk (N.string "x")))
                   {}
                   (ThunkCache {
-                    thunks = { "0" = CODE_ 0 "string"; };
+                    thunks = { "0" = CODE 0 "string"; };
                     nextId = 1;
                     values = {};
                   })
-                  (CODE_ 0 "string");
+                  (CODE 0 "string");
               };
 
           };
