@@ -979,7 +979,7 @@ in rec {
               (r // { s = EvalState { scope = r.s.scope; };})  # Ignore the thunk cache
               { s = EvalState {scope = s';}; a = a'; };
           expectRunWithThunkCache = a: s: s': tc': a': 
-            expect.eq
+            expect.noLambdasEq
               (a.run (EvalState {scope = s;})).right
               { s = EvalState {scope = s'; thunkCache = tc';}; a = a'; };
           expectRunError = s: a: e: 
@@ -1400,11 +1400,10 @@ in rec {
                       (NodeThunk (N.string "x")))
                     {}
                     {}
-                    {}
-                    #(ThunkCache {
-                    #  thunks = { "0" = CODE 0 "string"; };
-                    #  nextId = 1;
-                    #})
+                    (ThunkCache {
+                      thunks = { "0" = CODE 0 "string"; };
+                      nextId = 1;
+                    })
                     (CODE 0 "string");
               };
 
