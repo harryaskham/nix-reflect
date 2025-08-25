@@ -821,8 +821,7 @@ in rec {
       {func = forceEvalNodeM node.func;}
       ({_, func, ...}: _.do
         (guardApplicable func)
-        # saveScope to stop bound lambda arguments leaking
-        (saveScope ({_}: _.foldM apply1Node func node.args)));
+        (foldM apply1Node func node.args));
 
   # Evaluate a let expression
   # evalLetIn :: AST -> Eval a

@@ -148,11 +148,11 @@ in with typed; rec {
       log.while "printing positional information for an individual position" (
       let sourceLines = splitLines (builtins.readFile p.file);
           toEnd = p.line + opts.linesAfter >= length sourceLines;
-          fromStart = p.line - opts.linesBefore < 1;
+          fromStart = p.line - opts.linesBefore <= 0;
           lines = 
             take 
               (1 + opts.linesBefore + opts.linesAfter) 
-              (drop (p.line - opts.linesBefore) sourceLines);
+              (drop (p.line - opts.linesBefore - 1) sourceLines);
           header = if opts.printHeader then "${toString p}\n---" else "";
           truncatedSource = _ls_ (
             (optionals (!fromStart && opts.printEllipses) ["..."]) ++
@@ -167,6 +167,9 @@ in with typed; rec {
     log.while "printing the default positinal information for a value" (
     printPos_ defaultPrintPosOpts x
     );
+  printPosDetailed = x: printPos_ (defaultPrintPosOpts // {
+    printHeader = true;
+  }) x;
   printPosWith = opts: x: printPos_ (defaultPrintPosOpts // opts) x;
 
   # <nix>debuglib._tests.run {}</nix>

@@ -1,11 +1,34 @@
 { lib, collective-lib, nix-reflect, ... }:
 
 with collective-lib.typed;
-let
-  inherit (nix-reflect) parser debuglib;
+let inherit (nix-reflect) parser debuglib;
 in rec {
+  # Do not move; predictable source location for reflection tests
+  testData = {
+    minimalDoBlock =
+      (Eval.do
+        {a = Eval.pure "pure string";}
+        ({a, _}: _.pure a));
+
+    doBlock =
+      (Eval.do
+        {a = Eval.pure "independent bind";}
+        {b = pure "implicit dependent bind";}
+        {c = {_}: _.pure "implicit dependent bind";}
+        (Eval.pure "independent action")
+        (pure "implicit dependent action")
+        ({_}: _.pure "explicit dependent action")
+        (Eval.do
+          {a = Eval.pure "nested independent bind";}
+          {b = pure "nested implicit dependent bind";}
+          {c = {_}: _.pure "nested implicit dependent bind";}
+          (Eval.pure "nested independent action")
+          (pure "nested implicit dependent action")
+          ({_}: _.pure "nested explicit dependent action")));
+  };
+
   checkTypes = all (T: T ? check || isbuiltinName T);
-  
+    
   assertIs = T: a:
     if T ? check then 
       assert assertMsg (T.check a) (_b_ ''
@@ -475,27 +498,55 @@ in rec {
   };
 
   printDo = self:
-    let 
+    let
+      # Try to infer the do block position from the first self-contained statement
+      # i.e. a bind statement where { k = ...; } is source-tracked
       doPos = 
         if empty self.__statements then null
-        else debuglib.pos.path (head self.__statements);
+        else
+          let ps = filter (x: x != null) (map debuglib.pos.path self.__statements);
+          in if empty ps then null else head ps;
 
-      doLine = 
-        if doPos == null then null
-        else let p = soloValue doPos; in 
-            if (p ? file) && (p ? line) then "${p.file}:${toString p.line}"
-            else null;
-      header = optionalString (doLine != null) doLine;
-    in 
-      if empty self.__statements then "<empty do-block>"
-      else _b_ ''
-        ${header}
-        do
-          ${_h_ (_ls_ (map (debuglib.printPosWith {
-            emptyMsg = "<no source>";
-            errorMsg = "<error>";
-          }) self.__statements))}
-      '';
+    header =
+      if doPos == null then null
+      else 
+        let 
+          p = soloValue doPos;
+        in 
+          if (p ? file) && (p ? line)
+          then "${builtins.baseNameOf p.file}:${toString p.line}"
+          else null;
+
+    tryPrintStatementRHS = f:
+      let rhs = try (f (nullRequiredArgs f // {_ = self.M.pure unit;})) (_: "...");
+      in if isString rhs then rhs else printStatement rhs;
+
+    printStatement =
+      dispatch.on (bindStatementSignature self.M) {
+        IndependentAction = statement:
+          if isDo statement then "(" + _b_ "${_h_ (printDo statement)})"
+          else "(<${getT statement}>)";
+        DependentAction = statement: 
+          let args = builtins.functionArgs statement;
+          in _b_ ''
+            (${if size args > 0
+                then "{${joinSep ", " (attrNames args)}, ...}"
+                else "{?}"
+             }: ${_h_ (tryPrintStatementRHS statement)})
+          '';
+        IndependentBind = statement: _b_ ''
+          ${debuglib.printPos (debuglib.pos.path statement)}
+        '';
+        DependentBind = statement: _b_ ''
+          ${debuglib.printPos (debuglib.pos.path statement)}
+        '';
+      };
+  in 
+    if empty self.__statements then "<empty do-block>"
+    else _b_ ''
+      ${self.M}.do${optionalString (header != null) " <${header}>"}
+        ${_h_ (joinLines (map printStatement self.__statements))}
+    '';
 
   # Given a monad M, a state containing an M bindings and an M m monadic action,
   # and a statement of one of these forms:
@@ -927,8 +978,8 @@ in rec {
             in expect.noLambdasEq
               (r // { s = EvalState { scope = r.s.scope; };})  # Ignore the thunk cache
               { s = EvalState {scope = s';}; a = a'; };
-          expectRunWithThunkCache = s: a: s': tc': a': 
-            expect.noLambdasEq
+          expectRunWithThunkCache = a: s: s': tc': a': 
+            expect.eq
               (a.run (EvalState {scope = s;})).right
               { s = EvalState {scope = s'; thunkCache = tc';}; a = a'; };
           expectRunError = s: a: e: 
@@ -1242,6 +1293,30 @@ in rec {
                   in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
               };
 
+              printDo = {
+                minimalDoBlock = expect.eq (toString testData.minimalDoBlock) (_b_ ''
+                  Eval.do <monad.nix:10>
+                    {a = Eval.pure "pure string";}
+                    ({_, a, ...}: (<Eval Unit>))
+                '');
+                doBlock = expect.eq (toString testData.doBlock) (_b_ ''
+                  Eval.do <monad.nix:15>
+                    {a = Eval.pure "independent bind";}
+                    {b = pure "implicit dependent bind";}
+                    {c = {_}: _.pure "implicit dependent bind";}
+                    (<Eval string>)
+                    ({_, ...}: (<Eval Unit>))
+                    ({_, ...}: (<Eval Unit>))
+                    (Eval.do <monad.nix:22>
+                      {a = Eval.pure "nested independent bind";}
+                      {b = pure "nested implicit dependent bind";}
+                      {c = {_}: _.pure "nested implicit dependent bind";}
+                      (<Eval string>)
+                      ({_, ...}: (<Eval Unit>))
+                      ({_, ...}: (<Eval Unit>)))
+                '');
+              };
+
             };
               
             composes = 
@@ -1310,17 +1385,27 @@ in rec {
                 ]) {} [1 2 3];
               };
 
-              thunkCache = with parser; {
-                put = expectRunWithThunkCache {}
-                  (Eval.do
-                    (NodeThunk (N.string "x")))
-                  {}
-                  (ThunkCache {
-                    thunks = { "0" = CODE 0 "string"; };
-                    nextId = 1;
-                    values = {};
-                  })
-                  (CODE 0 "string");
+              thunkCache = with parser; solo {
+                getEmpty =
+                  expectRunWithThunkCache 
+                    (Eval.do
+                      (getThunkCache))
+                    {}
+                    {}
+                    (ThunkCache {})
+                    (ThunkCache {});
+                put = 
+                  expectRunWithThunkCache
+                    (Eval.do
+                      (NodeThunk (N.string "x")))
+                    {}
+                    {}
+                    {}
+                    #(ThunkCache {
+                    #  thunks = { "0" = CODE 0 "string"; };
+                    #  nextId = 1;
+                    #})
+                    (CODE 0 "string");
               };
 
           };
