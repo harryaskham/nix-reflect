@@ -20,15 +20,24 @@ function color() {
   done
 }
 
-function with-lib() {
-  EXPR="$1"
-  shift
-  INSTALLABLE=".#lib.x86_64-linux"
-  nix eval --impure --show-trace --apply "lib: $EXPR" ${@} $INSTALLABLE
+function with-installable() {
+  installable="$1"
+  arg_name="$2"
+  expr="$3"
+  shift 3
+  nix eval --impure --show-trace --apply "$arg_name: $expr" ${@} $installable
 }
 
-function eval-test-expr() {
-  with-lib "$1" --raw 2>&1 \
+function with-lib() {
+  expr="$1"
+  shift 
+  with-installable ".#lib.x86_64-linux" "lib" "$expr" ${@}
+}
+
+function eval-expr() {
+  expr="$1"
+  shift 1
+  with-lib "$expr" --raw 2>&1 \
     | sed "s/trace: start_trace(\(.\+\)): /\\\\e[90m[\\1] \\\\e[0m/" \
     | grep -v "^trace: end_trace$" \
     | color
@@ -36,32 +45,32 @@ function eval-test-expr() {
 
 function run-tests() {
   if [[ -z "$1" ]]; then
-    eval-test-expr "lib._tests.run {}"
+    eval-expr "lib._tests.run {}"
   else
-    eval-test-expr "lib.$1._tests.run {}"
+    eval-expr "lib.$1._tests.run {}"
   fi
 }
 
 function debug-tests() {
   if [[ -z "$1" ]]; then
-    eval-test-expr "lib._tests.debug {}"
+    eval-expr "lib._tests.debug {}"
   else
-    eval-test-expr "lib.$1._tests.debug {}"
+    eval-expr "lib.$1._tests.debug {}"
   fi
 }
 
 function run-test() {
   if [[ -z "$2" ]]; then
-    eval-test-expr "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.runOne))"
+    eval-expr "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.runOne))"
   else
-    eval-test-expr "lib.$1._tests.runOne.$2 {} {}"
+    eval-expr "lib.$1._tests.runOne.$2 {} {}"
   fi
 }
 
 function debug-test() {
   if [[ -z "$2" ]]; then
-    eval-test-expr "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.debugOne))"
+    eval-expr "with (import <nixpkgs/lib>); concatStringsSep \"\\n\" (attrNames (lib.$1._tests.debugOne))"
   else
-    eval-test-expr "lib.$1._tests.debugOne.$2 {} {}"
+    eval-expr "lib.$1._tests.debugOne.$2 {} {}"
   fi
 }
