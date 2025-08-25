@@ -4,7 +4,7 @@ with collective-lib.typed;
 with nix-reflect.eval.monad;
 
 let
-  inherit (nix-reflect.parser) AST N isAST parse;
+  inherit (nix-reflect.parser) AST N isAST parse printBoxed;
   do = Eval.do;
 in rec {
   # Module callable as eval.ast
@@ -40,7 +40,11 @@ in rec {
     let parsed = parse expr;
     in with (log.v 1).call "evalM" expr ___;
     {_, ...}: _.do
-      (whileV 1 "evaluating parsed AST node: ${try (toString parsed) (_: "<parse failed>")}")
+      (whileV 1 (
+        with script-utils.ansi-utils.ansi; _b_ ''
+          Evaluating parsed AST node:
+          ${printBoxed parsed}
+        ''))
       (set initEvalState)
       {result = 
         if strict then deeplyEvalNodeM parsed
@@ -54,7 +58,7 @@ in rec {
     if isEvalError x then x
     else if isMonadOf Eval x then toNix (x.runClosure {})
     else if isNodeThunk x then toNix (Eval.do (force x))
-    else if isEvaluatedLambda x then x.asLambda
+    else if isEvaluatedLambda x then Eval.x.asLambda
     else if x ? __functor then x // { __functor = self: arg: (toNix x.__functor) self arg; }
     else if builtins.isFunction x then arg: toNix (x arg)
     else if isList x then map toNix x
@@ -110,12 +114,12 @@ in rec {
 
   deeplyEvalNodeM = node: {_, ...}:
     _.do
-      (whileV 2 "deeply evaluating AST node: ${toString node}")
+      (whileV 2 "deeply evaluating AST node: ${printBoxed node}")
       (forceDeeplyM (evalNodeM node));
 
   forceEvalNodeM = node: {_, ...}:
     _.do
-      (whileV 2 "evaluating AST node to WHNF: ${toString node}")
+      (whileV 2 "evaluating AST node to WHNF: ${printBoxed node}")
       (forceM (evalNodeM node));
 
   forceM = m: {_, ...}:
@@ -136,9 +140,7 @@ in rec {
       if isEvaluatedLambda x then _.pure x
       else if isEvalError x then _.pure x
       else if isAST x then _.pure x
-      else if isNodeThunk x then _.do
-        {forced = force x;}
-        ({_, forced}: _.bind (forceDeeply forced))
+      else if isNodeThunk x then _.bind (forceDeeplyM (force x))
       else if isList x then _.traverse forceDeeply x
       else if isAttrs x then _.do
         {forcedSolos =
@@ -730,49 +732,33 @@ in rec {
   # e.g. if we have Eval (a: b: a + b) then asLambda gives native a: (b: a + b).run ==
   # a: (b: a + b) (the latter EL is converted via asLambda in run_) so this maybe be okay.
   isEvaluatedLambda = x: x ? __isEvaluatedLambda;
-  #EvaluatedLambda = param: body: {_, ...}:
-  #  _.pure (lib.fix (self: {
-  #    __isEvaluatedLambda = true;
-
-  #    # Continue evaluating inside the Eval monad
-  #    # Do not leak any scope updates inside the application to the outside.
-  #    # saveScope here would cause any thunks forced inside the application
-  #    # to remain thunks in the state, causing e.g. recursive functions to evaluate
-  #    # the whole form every time we reach them. We instead need to saveScope around
-  #    # function application itself.
-  #    apply = arg:
-  #      (_.do
-  #        {paramScope = evalLambdaParams param arg;}
-  #        ({paramScope, _, ...}: _.do
-  #          (appendScope paramScope)
-  #          (evalNodeM body)))
-  #      .runClosureM;
-
-  #    # Convert to a regular Nix lambda deeply, using self._ as snapshotted state.
-  #    # Can't return lazy values as Nix thunks aren't exposed, so must force.
-  #    asLambda = arg: toNix (self.apply arg);
-  #  }));
   EvaluatedLambda = param: body: {_, ...}:
     _.pure (lib.fix (self: {
+      inherit _;
       __isEvaluatedLambda = true;
 
       __functor = self: arg: self.asLambda arg;
 
-      asLambda = arg:
-        let r = (self.apply arg).runClosure {};
-        in if isEvalError r then throw (_p_ r)
-        else r;
+      asLambda = arg: ((self._.do self.asLambdaM).runClosure {}) arg;
+      asLambdaM = {_}: _.do
+        (while "converting EvaluatedLambda to lambda")
+        ({_}: _.pure
+          (arg:
+            let r = (_.do (self.applyM arg)).runClosure {};
+            in if isEvalError r then throw (_p_ r)
+            else r));
 
-      applyM = arg: do
-        {r = (self.apply arg).runClosureM;}
-        ({r, _}: if isEvalError r then _.liftEither r else _.pure r);
-
-      apply = arg:
-        _.do
-          {paramScope = evalLambdaParams param arg;}
-          ({paramScope, _, ...}: _.do
+      # Apply the lambda monadically, updating and accessing the thunk cache.
+      applyM = arg: {_}: _.do
+        (while "applying EvaluatedLambda")
+        {paramScope = evalLambdaParams param arg;}
+        ({paramScope, _, ...}: _.do
+          # Run the lambda body inside the self._; old state, new cache
+          # and save the new lambda cache state.
+          (runM (self._.do
+            (while "evaluating EvaluatedLambda body")
             (appendScope paramScope)
-            (evalNodeM body));
+            (evalNodeM body))));
     }));
 
   # Evaluate a lambda expression
@@ -1011,7 +997,7 @@ in rec {
     # Tests for evalAST round-trip property
     evalAST = {
 
-      _00_smoke.strict = {
+      _00_smoke.strict = solo {
         _00_int = testRoundTrip "1" 1;
         _01_float = testRoundTrip "1.0" 1.0;
         _02_string = testRoundTrip ''"hello"'' "hello";
@@ -1039,7 +1025,7 @@ in rec {
         _22_lambdaRecDefaults = testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
-      _00_smoke.lazy = {
+      _00_smoke.lazy = solo {
         _00_int = testRoundTripLazy "1" 1;
          _01_float = testRoundTripLazy "1.0" 1.0;
          _02_string = testRoundTripLazy ''"hello"'' "hello";
@@ -1144,27 +1130,28 @@ in rec {
       };
 
       # Collections
-      _03_lists = {
-        empty = testRoundTrip "[]" [];
-        single = testRoundTrip "[1]" [1];
-        numbers = testRoundTrip "[1 2 3]" [1 2 3];
-        mixed = testRoundTrip ''[1 "hello" true]'' [1 "hello" true];
-        nested = testRoundTrip "[[1 2] [3 4]]" [[1 2] [3 4]];
-        deeplyNested = testRoundTrip "[[[1]]]" [[[1]]];
-        withNulls = testRoundTrip "[1 null 3]" [1 null 3];
-        withBooleans = testRoundTrip "[true false true]" [true false true];
-        withStrings = testRoundTrip ''["a" "b" "c"]'' ["a" "b" "c"];
-        withFloats = testRoundTrip "[1.1 2.2 3.3]" [1.1 2.2 3.3];
-        largeNumbers = testRoundTrip "[999999999 (-999999999)]" [999999999 (-999999999)];
-        emptyStrings = testRoundTrip ''["" "hello" ""]'' ["" "hello" ""];
-        whitespace = testRoundTrip "[ 1 2 3 ]" [1 2 3];
-        nestedEmpty = testRoundTrip "[[] [1] []]" [[] [1] []];
-        mixedNested = testRoundTrip ''[1 [2 "three"] [true [null]]]'' [1 [2 "three"] [true [null]]];
-        expressions = testRoundTrip "[(1 + 1) (2 * 3)]" [2 6];
-        withAttributes = testRoundTrip "[{a = 1;} {b = 2;}]" [{a = 1;} {b = 2;}];
-        singletonNested = testRoundTrip "[[1]]" [[1]];
+      _03_lists = solo {
         alternatingTypes = testRoundTrip ''[1 "a" 2 "b"]'' [1 "a" 2 "b"];
+        deeplyNested._2 = testRoundTrip "[[1]]" [[[1]]];
+        deeplyNested._3 = testRoundTrip "[[[1]]]" [[[1]]];
+        empty = testRoundTrip "[]" [];
+        emptyStrings = testRoundTrip ''["" "hello" ""]'' ["" "hello" ""];
+        expressions = testRoundTrip "[(1 + 1) (2 * 3)]" [2 6];
         largeList = testRoundTrip "[1 2 3 4 5 6 7 8 9 10]" [1 2 3 4 5 6 7 8 9 10];
+        largeNumbers = testRoundTrip "[999999999 (-999999999)]" [999999999 (-999999999)];
+        mixed = testRoundTrip ''[1 "hello" true]'' [1 "hello" true];
+        mixedNested = testRoundTrip ''[1 [2 "three"] [true [null]]]'' [1 [2 "three"] [true [null]]];
+        nested = testRoundTrip "[[1 2] [3 4]]" [[1 2] [3 4]];
+        nestedEmpty = testRoundTrip "[[] [1] []]" [[] [1] []];
+        numbers = testRoundTrip "[1 2 3]" [1 2 3];
+        single = testRoundTrip "[1]" [1];
+        singletonNested = testRoundTrip "[[1]]" [[1]];
+        whitespace = testRoundTrip "[ 1 2 3 ]" [1 2 3];
+        withAttributes = testRoundTrip "[{a = 1;} {b = 2;}]" [{a = 1;} {b = 2;}];
+        withBooleans = testRoundTrip "[true false true]" [true false true];
+        withFloats = testRoundTrip "[1.1 2.2 3.3]" [1.1 2.2 3.3];
+        withNulls = testRoundTrip "[1 null 3]" [1 null 3];
+        withStrings = testRoundTrip ''["a" "b" "c"]'' ["a" "b" "c"];
       };
 
       _04_attrs = {

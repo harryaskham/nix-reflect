@@ -202,6 +202,21 @@ let this = rec {
   hiddenParams = [ "__type" "__isAST" "__toString" "__args" "fmap" "mapNode" "__src" "__offset"
                    "name" "value" "param" "ellipsis" "op" "op0" "op1" "isRec" ];
 
+  printBoxed = node:
+    with script-utils.ansi-utils.ansi; box {
+      header = printASTName node;
+      body = _b_ ''
+        ${optionalString ((node.__src or null) != null) (box {
+          header = style [fg.cyan bold] "Source";
+          body = _b_ (node.__src);
+        })}
+        ${box {
+          header = style [fg.yellow bold] "AST";
+          body = _b_ (toString node);
+        }}
+      '';
+    };
+
   # Pull out all nested __args in DFS order
   compareAST =
     precompose [
