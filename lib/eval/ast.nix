@@ -46,7 +46,7 @@ rec {
         Evaluating parsed AST node:
         ${printBoxed parsed}
       ''))
-      (set initEvalState)
+      ({_}: _.set initEvalState)
       {result = 
         if strict then deeplyEvalNodeM parsed
         else forceEvalNodeM parsed;}
