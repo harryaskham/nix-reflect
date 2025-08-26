@@ -175,15 +175,13 @@ in rec {
         {state = get;}
         ({state, _}: 
           let forced = state.forceThunk x.thunkId;
-          in if forced.hit then _.do
-            (whileV 3 "returning cache hit value for thunk#${toString x.thunkId}")
-            (pure forced.value)
-          else _.do
-            (whileV 3 "writing back state with forced thunk#${toString x.thunkId} in cache")
-            (setThunkCache forced.thunkCache)
-            (pure forced.value))
+          in _.do
+              (whileV 3 "writing back state with forced thunk#${toString x.thunkId} in cache")
+              (setThunkCache forced.thunkCache)
+              (pure forced.value))
       # Return other values
-      else pure x );
+      else pure x
+    );
 
   isNodeThunk = x: x ? __isNodeThunk;
 
@@ -248,21 +246,21 @@ in rec {
       __toString = self: with script-utils.ansi-utils.ansi; box {
         header = style [fg.magenta bold] "ThunkCache";
         body = ''
-          ${_h_ self.stats}
+          ${_h_ (self.stats {})}
 
-          ${_h_ self.debug}
+          ${_h_ (self.debug {})}
         '';
       };
       __type = ThunkCache;
       __isThunkCache = true;
       inherit thunks values nextId hits misses;
 
-      stats = _b_ ''
+      stats = {}: _b_ ''
         ${toString (size values)}/${toString (size thunks)} forced
         ${toString hits}/${toString (hits+misses)} hits
         next ID: ${toString nextId}
       '';
-      debug = _b_ ''
+      debug = {}: _b_ ''
         thunks:
           ${_ph_ this.thunks}
 
@@ -640,6 +638,7 @@ in rec {
   when = cond: m: {_, ...}: _.when cond m;
   unless = cond: m: {_, ...}: _.unless cond m;
   runM = action: {_, ...}: _.runM action;
+  runEmptyM = action: {_, ...}: _.runEmptyM action;
 
   # Check if a value is a monad.
   # i.e. isMonad (Eval.pure 1) -> true
@@ -781,7 +780,7 @@ in rec {
               bind = this: statement: 
                 this.e.case {
                   Left = _: this;
-                  Right = a:
+                  Right = a: 
                     let normalised = normaliseBindStatement Eval statement;
                         mb = normalised.f {_ = this; _a = a;};
                     in assert that (isMonadOf Eval mb) ''
@@ -819,20 +818,20 @@ in rec {
               runM = this: action: this.do
                 {thunkCache = getThunkCache;}
                 # Run independently
-                {e = ({thunkCache, _}: _.do
-                  (while "running action with inherited ThunkCache")
-                  {e = 
-                    (Eval.do
+                {e = {thunkCache, _}: 
+                  _.do
+                    (while "running action with inherited ThunkCache")
+                    ((Eval.do
                       (setThunkCache thunkCache)
-                      (action)
-                    ).runEmptyM;});}
+                      (action)).runEmptyM);}
                 # Pull out the ThunkCache
                 ({e, _}: _.do
                   ({_}: e.case {
                     Left = err: _.liftEither err;
                     Right = r: _.do
+                      (while "setting thunk cache after runM")
                       (setThunkCache r.s.thunkCache)
-                      (pure r.a);
+                      ({_}: _.pure r.a);
                   }));
             };
           };
@@ -859,7 +858,7 @@ in rec {
 
   setThunkCache = thunkCache: {_, ...}:
     _.do
-      (while "setting thunk cache")
+      (while "setting thunk cache:\n${thunkCache}")
       {state = get;}
       ({_, state}: _.set (EvalState {inherit (state) scope; inherit thunkCache;}));
 
@@ -1394,6 +1393,7 @@ in rec {
                     {}
                     (ThunkCache {})
                     (ThunkCache {});
+
                 put = 
                   expectRunWithThunkCache
                     (Eval.do
@@ -1405,6 +1405,28 @@ in rec {
                       nextId = 1;
                     })
                     (CODE 0 "string");
+
+                putGet = 
+                  expectRunWithThunkCache
+                    (Eval.do
+                      {x = NodeThunk (N.string "x");}
+                      ({x, _}: _.do
+                        {x'0 = force x;}
+                        {x'1 = force x;}
+                        {x'2 = force x;}
+                        {x'3 = forceNoCache x;}
+                        {x'4 = forceNoCache x;}
+                        ({x'0, x'1, x'2, x'3, x'4, _}: _.pure [x'0 x'1 x'2 x'3 x'4])))
+                    {}
+                    {}
+                    (ThunkCache {
+                      thunks = { "0" = CODE 0 "string"; };
+                      values = { "0" = "x"; };
+                      misses = 1;
+                      hits = 2;
+                      nextId = 1;
+                    })
+                    ["x" "x" "x" "x" "x"];
               };
 
           };
