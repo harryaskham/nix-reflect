@@ -419,7 +419,7 @@ rec {
     || (isFunction xs)
     || (isSolo xs && isDoStatement M (soloValue xs));
 
-  assertIsDoStatement = M: xs:
+  assertIsDoStatement = doSelf: M: xs:
     assert that (isDoStatement M xs) ''
       do: expected a statement of form
 
@@ -568,8 +568,8 @@ rec {
   #
   # Return an updated state with the bindings updated inside the monad to any new
   # bindings, and an updated monadic action.
-  handleBindStatement = M: acc: statement:
-    assert (assertIsDoStatement M statement);
+  handleBindStatement = doSelf: M: acc: statement:
+    assert (assertIsDoStatement doSelf M statement);
     let normalised = normaliseBindStatement M statement;
     in
       (acc.m.bind ({_, _a}:
@@ -621,7 +621,7 @@ rec {
             canBind = false;
             m = this.__initM;
           };
-          accM = (M.pure unit).foldM (handleBindStatement M) initAcc (this.__statements);
+          accM = (M.pure unit).foldM (handleBindStatement this M) initAcc (this.__statements);
         in
           accM.bind ({_, _a}:
             assert that _a.canBind (withStackError this ''

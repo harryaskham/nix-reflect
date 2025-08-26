@@ -3,7 +3,7 @@
 let
   inherit (nix-reflect) parser debuglib eval;
   inherit (parser) AST N isAST parse printBoxed;
-  inherit (eval.monad) Thunk Eval;  # Explicit inclusion to avoid shadow fail against typed.functions.Thunk
+  inherit (eval.monad) Thunk isThunk Eval;  # Explicit inclusion to avoid shadow fail against typed.functions.Thunk
   inherit (Eval) do;
 in 
 with eval.monad;
@@ -2232,7 +2232,7 @@ rec {
           expect.True ((evalAST (builtins.readFile ./ast.nix)) ? right);
       };
 
-      _20_caching = solo {
+      _20_caching = {
         putGetMany =
           let xsNode = parse "{x = 1;}";
               getX = xs: {_}: _.do
