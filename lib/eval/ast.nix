@@ -22,7 +22,7 @@ rec {
   runAST' = runAST_ true;
   runAST_ = strict: expr:
     (do
-      (whileV 1 "evaluating string or AST node: ${_p_ expr}")
+      (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
       (evalM strict expr))
     .runEmpty {};
 
@@ -32,7 +32,7 @@ rec {
   evalAST' = evalAST_ true;
   evalAST_ = strict: expr:
     (do
-      (whileV 1 "evaluating string or AST node: ${_p_ expr}")
+      (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
       (evalM strict expr))
     .runEmpty_ {};
 
@@ -42,11 +42,10 @@ rec {
     let parsed = parse expr;
     in with (log.v 1).call "evalM" expr ___;
     {_, ...}: _.do
-      (whileV 1 (
-        with script-utils.ansi-utils.ansi; _b_ ''
-          Evaluating parsed AST node:
-          ${printBoxed parsed}
-        ''))
+      (whileV 1 (_b_ ''
+        Evaluating parsed AST node:
+        ${printBoxed parsed}
+      ''))
       (set initEvalState)
       {result = 
         if strict then deeplyEvalNodeM parsed
@@ -1131,7 +1130,7 @@ rec {
       };
 
       # Collections
-      _03_lists = solo {
+      _03_lists = {
         alternatingTypes = testRoundTrip ''[1 "a" 2 "b"]'' [1 "a" 2 "b"];
         deeplyNested._2 = testRoundTrip "[[1]]" [[[1]]];
         deeplyNested._3 = testRoundTrip "[[[1]]]" [[[1]]];

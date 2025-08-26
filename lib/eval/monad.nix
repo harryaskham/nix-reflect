@@ -415,9 +415,11 @@ rec {
   isDoOf = M: xdo: isDo xdo && tEq xdo.M M;
 
   isDoStatement = M: xs:
+    log.while ("checking if ${_p_ xs} is a do-statement of ${M}") (
     (M != null && isMonadOf M xs)
     || (isFunction xs)
-    || (isSolo xs && isDoStatement M (soloValue xs));
+    || (isSolo xs && isDoStatement M (soloValue xs))
+    );
 
   assertIsDoStatement = doSelf: M: xs:
     assert that (isDoStatement M xs) ''
@@ -437,7 +439,7 @@ rec {
 
         { name = ({ bindings, ... }: ${if M == null then "<monadic value>" else M Any}); }
 
-      but got ${_p_ xs}
+      but got ${_pv_ xs}
     '';
     true;
 
@@ -507,6 +509,31 @@ rec {
       mkNormalisedDoStatement statement (soloName statement) (addEllipsis (soloValue statement));
   };
 
+  tryPrintStatementRHS = M: f:
+    let rhs = try (f (nullRequiredArgs f // {_ = M.pure unit;})) (_: "...");
+    in if isString rhs then rhs else printStatement M rhs;
+
+  printStatement = M: 
+    dispatch.on (bindStatementSignature M) {
+      IndependentAction = statement:
+        if isDo statement then "(" + _b_ "${_h_ (printDo statement)})"
+        else "(<${getT statement}>)";
+      DependentAction = statement: 
+        let args = builtins.functionArgs statement;
+        in _b_ ''
+          (${if size args > 0
+              then "{${joinSep ", " (attrNames args)}, ...}"
+              else "{?}"
+            }: ${_h_ (tryPrintStatementRHS M statement)})
+        '';
+      IndependentBind = statement: _b_ ''
+        ${debuglib.printPos (debuglib.pos.path statement)}
+      '';
+      DependentBind = statement: _b_ ''
+        ${debuglib.printPos (debuglib.pos.path statement)}
+      '';
+    };
+
   printDo = self:
     let
       # Try to infer the do block position from the first self-contained statement
@@ -517,46 +544,22 @@ rec {
           let ps = filter (x: x != null) (map debuglib.pos.path self.__statements);
           in if empty ps then null else head ps;
 
-    header =
-      if doPos == null then null
-      else 
-        let 
-          p = soloValue doPos;
-        in 
-          if (p ? file) && (p ? line)
-          then "${builtins.baseNameOf p.file}:${toString p.line}"
-          else null;
+      header =
+        if doPos == null then null
+        else 
+          let 
+            p = soloValue doPos;
+          in 
+            if (p ? file) && (p ? line)
+            then "${builtins.baseNameOf p.file}:${toString p.line}"
+            else null;
 
-    tryPrintStatementRHS = f:
-      let rhs = try (f (nullRequiredArgs f // {_ = self.M.pure unit;})) (_: "...");
-      in if isString rhs then rhs else printStatement rhs;
-
-    printStatement =
-      dispatch.on (bindStatementSignature self.M) {
-        IndependentAction = statement:
-          if isDo statement then "(" + _b_ "${_h_ (printDo statement)})"
-          else "(<${getT statement}>)";
-        DependentAction = statement: 
-          let args = builtins.functionArgs statement;
-          in _b_ ''
-            (${if size args > 0
-                then "{${joinSep ", " (attrNames args)}, ...}"
-                else "{?}"
-             }: ${_h_ (tryPrintStatementRHS statement)})
-          '';
-        IndependentBind = statement: _b_ ''
-          ${debuglib.printPos (debuglib.pos.path statement)}
-        '';
-        DependentBind = statement: _b_ ''
-          ${debuglib.printPos (debuglib.pos.path statement)}
-        '';
-      };
-  in 
-    if empty self.__statements then "<empty do-block>"
-    else _b_ ''
-      ${self.M}.do${optionalString (header != null) " <${header}>"}
-        ${_h_ (joinLines (map printStatement self.__statements))}
-    '';
+    in 
+      if empty self.__statements then "<empty do-block>"
+      else _b_ ''
+        ${self.M}.do${optionalString (header != null) " <${header}>"}
+          ${_h_ (joinLines (map (printStatement self.M) self.__statements))}
+      '';
 
   # Given a monad M, a state containing an M bindings and an M m monadic action,
   # and a statement of one of these forms:
@@ -592,6 +595,7 @@ rec {
   # When bound, it runs the statements in order to produce the monadic value
   # on which to call bind.
   mkDo = M: __initM: __statements:
+    log.while ("constructing a do-block of\n${joinLines (map (printStatement M) __statements)}") (
     let this = {
       __isDo = true;
       __isMonad = true;
@@ -601,20 +605,26 @@ rec {
       __toString = printDo;
 
       __functor = self: statement:
-        mkDo M self.__initM (self.__statements ++ [statement]);
+        log.while ("lazily storing a do-statement:\n${printStatement M statement}") (
+        mkDo M self.__initM (self.__statements ++ [statement])
+        );
 
       __setInitM = initM: mkDo this.M initM this.__statements;
 
       # Bind with specified initial monadic value.
       # Just creates a new do with self as the initial value of the last one.
       bind = statement:
+        log.while ("binding a do-statement:\n${printStatement M statement}") (
         M.do
-          (this.action.bind statement);
+          (this.action.bind statement)
+        );
 
       sq = b: this.bind (_: b);
 
       # Actually force the block to evaluate down to a final M value.
       force = {}:
+        #log.while "forcing do-block:\n${this}" (
+        log.while "forcing do-block" (
         let 
           initAcc = {
             bindings = {};
@@ -627,7 +637,8 @@ rec {
             assert that _a.canBind (withStackError this ''
               do: final statement of a do-block cannot be an assignment.
             '');
-            _a.m);
+            _a.m)
+        );
 
       action = this.force {};
       run = arg: this.action.run arg;
@@ -644,7 +655,8 @@ rec {
       catch = arg: this.action.catch arg;
       do = mkDo M this.action [];
     };
-    in this;
+    in this
+    );
 
   pure = x: {_, ...}: _.pure x;
   throws = e: {_, ...}: _.throws e;
