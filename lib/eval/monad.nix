@@ -1,8 +1,11 @@
 { lib, collective-lib, nix-reflect, ... }:
 
-with collective-lib.typed;
-let inherit (nix-reflect) parser debuglib;
-in rec {
+let 
+  inherit (nix-reflect) parser debuglib eval;
+  inherit (parser) parse;
+in 
+  with collective-lib.typed;
+rec {
   # Do not move; predictable source location for reflection tests
   testData = {
     minimalDoBlock =
@@ -161,7 +164,7 @@ in rec {
 
   # Run inside the state's forcing mechanism in the case of cache miss
   forceNoCache = x: {_, ...}: _.do
-    (if isNodeThunk x then x.forceNoCache else pure x);
+    (if isThunk x then x.run else pure x);
 
   # Handles forcing a thunk with current state cache and writing it back
   # Pathway is:
@@ -171,22 +174,23 @@ in rec {
   # - 'force' concludes by saving the updated ThunkCache (not the whole state, which is local to the thunk).
   force = x: {_, ...}: _.do
     ( # Force thunks, persisting the value in the cache upon first force.
-      if isNodeThunk x then {_}: _.do
+      if isThunk x then {_}: _.do
         {state = get;}
         ({state, _}: 
           let forced = state.forceThunk x.thunkId;
-          in _.do
-              (whileV 3 "writing back state with forced thunk#${toString x.thunkId} in cache")
+          in 
+            _.do
+              (whileV 3 "writing back state after cache ${if forced.hit then "hit" else "miss"} on ${x}")
               (setThunkCache forced.thunkCache)
               (pure forced.value))
       # Return other values
       else pure x
     );
 
-  isNodeThunk = x: x ? __isNodeThunk;
+  isThunk = x: x ? __isThunk;
 
-  mkNodeThunk = _: thunkId: node: lib.fix (self: {
-    __isNodeThunk = true;
+  mkThunk = _: thunkId: node: lib.fix (self: {
+    __isThunk = true;
     inherit thunkId;
     inherit (node) nodeType;
     __toString = self: "<CODE#${toString thunkId}|${self.nodeType}>";
@@ -194,14 +198,15 @@ in rec {
     # Force the thunk down to WHNF inside the monad without recent cache access.
     # Retain errors but not state.
     # Also use the current state of the thunk cache.
-    forceNoCache = 
+    run = 
       let _self_ = _;
       in {_}: _.do
         {r = 
           (_self_.do
             (while "forcing '${self.nodeType}' thunk ${toString self} without cache")
-            # Handle nested thunks
-            {forced = forceNoCache node;}
+            # Handle nested thunks (i.e. thunk-of-thunk)
+            # This can use cache again; blows up if a thunk refers to itself.
+            {forced = force node;}
             ({forced, _}: _.bind (nix-reflect.eval.ast.forceEvalNodeM forced))
           ).runClosureM;}
           # TODO: Pull out the updated thunk cache which may have resolved some shared
@@ -211,26 +216,18 @@ in rec {
     # Force the thunk down to WHNF inside the monad without recent cache access.
     # Retain errors but not state.
     # Also use the current state of the thunk cache.
-    force = 
-      # Bind to _'s runM to keep the ThunkCache but not inherit any state.
-      let _self_ = _;
-      in runM (_self_.do
-        (while "forcing '${self.nodeType}' thunk ${toString self} with cache")
-        # Handle nested thunks
-        # TODO: Or validate we can never build one.
-        {forced = force node;}
-        ({forced, _}: _.bind (nix-reflect.eval.ast.forceEvalNodeM forced)));
+    force = force self;
   });
 
-  NodeThunk = node:
+  Thunk = node:
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
     if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
     else {_}: _.do
-      (while "constructing '${node.nodeType}' NodeThunk")
+      (while "constructing '${node.nodeType}' Thunk")
       {state = get;}
       ({state, _}:
         # TODO: Plumb new _ backwards into the thunk state? May avoid thunks recalculating themselves.
-        let thunk = mkNodeThunk _ state.thunkCache.nextId node;
+        let thunk = mkThunk _ state.thunkCache.nextId node;
             cached = state.cacheThunk thunk;
         in _.do
           (whileV 3 "writing ${toString thunk} into cache:\n${state.thunkCache}")
@@ -243,76 +240,79 @@ in rec {
     __functor = self:
       {thunks ? {}, values ? {}, nextId ? 0, hits ? 0, misses ? 0}:
       (lib.fix (this: {
-      __toString = self: with script-utils.ansi-utils.ansi; box {
-        header = style [fg.magenta bold] "ThunkCache";
-        body = ''
-          ${_h_ (self.stats {})}
+        __toString = self: self.print {};
 
-          ${_h_ (self.debug {})}
+        print = args: with script-utils.ansi-utils.ansi; box ({
+          header = style [fg.magenta bold] "ThunkCache";
+          body = ''
+            ${_h_ (this.stats {})}
+
+            ${_h_ (this.debug {})}
+          '';
+        } // args);
+
+        __type = ThunkCache;
+        __isThunkCache = true;
+        inherit thunks values nextId hits misses;
+
+        stats = {}: _b_ ''
+          ${toString (size values)}/${toString (size thunks)} forced
+          ${toString hits}/${toString (hits+misses)} hits
+          next ID: ${toString nextId}
         '';
-      };
-      __type = ThunkCache;
-      __isThunkCache = true;
-      inherit thunks values nextId hits misses;
+        debug = {}: _b_ ''
+          thunks:
+            ${_ph_ this.thunks}
 
-      stats = {}: _b_ ''
-        ${toString (size values)}/${toString (size thunks)} forced
-        ${toString hits}/${toString (hits+misses)} hits
-        next ID: ${toString nextId}
-      '';
-      debug = {}: _b_ ''
-        thunks:
-          ${_ph_ this.thunks}
+          values:
+            ${_ph_ this.values}
+        '';
 
-        values:
-          ${_ph_ this.values}
-      '';
+        put = thunk: ThunkCache { 
+          inherit (this) values hits misses;
+          thunks = this.thunks // { ${toString this.nextId} = thunk; };
+          nextId = this.nextId + 1;
+        };
 
-      put = thunk: ThunkCache { 
-        inherit (this) values hits misses;
-        thunks = this.thunks // { ${toString this.nextId} = thunk; };
-        nextId = this.nextId + 1;
-      };
-
-      force = thunkId_:
-        let thunkId = toString thunkId_;
-            thunk = 
-              assert that (this.thunks ? ${thunkId}) ''
-                ThunkCache.force: thunkId ${thunkId} not found in cache:
-                  ${this}
-              '';
-              this.thunks.${thunkId};
-            cachedValue = this.values.${thunkId};
-            forcedValue = 
-              (Eval.do 
-                (whileV 3 "forcing thunk#${thunkId} in:\n${this}")
-                (forceNoCache thunk)
-              ).runClosure {};
-        in 
-        if this.values ? ${thunkId} then 
-          let this' = ThunkCache {
-            inherit (this) thunks values nextId misses;
-            hits = this.hits + 1;
-          };
-          in (log.v 3).show "ThunkCache hit for ${thunk}:\n${this'}" {
-            value = cachedValue;
-            hit = true;
-            cache = this';
-          } 
-        else 
-          let this' = ThunkCache {
-            inherit (this) thunks nextId hits;
-            misses = this.misses + 1;
-            values = this.values // { 
-              ${thunkId} = forcedValue;
+        force = thunkId_:
+          let thunkId = toString thunkId_;
+              thunk = 
+                assert that (this.thunks ? ${thunkId}) ''
+                  ThunkCache.force: thunkId ${thunkId} not found in cache:
+                    ${this}
+                '';
+                this.thunks.${thunkId};
+              cachedValue = this.values.${thunkId};
+              forcedValue = 
+                (Eval.do 
+                  (whileV 3 "forcing thunk#${thunkId} in:\n${this}")
+                  (forceNoCache thunk)
+                ).runClosure {};
+          in 
+          if this.values ? ${thunkId} then 
+            let this' = ThunkCache {
+              inherit (this) thunks values nextId misses;
+              hits = this.hits + 1;
             };
-          };
-          in (log.v 3).show "ThunkCache miss for ${thunk}:\n${this'}" {
-            value = forcedValue;
-            hit = false;
-            cache = this';
-          };
-    }));
+            in (log.v 3).show "ThunkCache hit for ${thunk}:\n${this'}" {
+              value = cachedValue;
+              hit = true;
+              cache = this';
+            } 
+          else 
+            let this' = ThunkCache {
+              inherit (this) thunks nextId hits;
+              misses = this.misses + 1;
+              values = this.values // { 
+                ${thunkId} = forcedValue;
+              };
+            };
+            in (log.v 3).show "ThunkCache miss for ${thunk}:\n${this'}" {
+              value = forcedValue;
+              hit = false;
+              cache = this';
+            };
+      }));
   };
 
   EvalState = rec {
@@ -323,7 +323,19 @@ in rec {
     __functor = self: {scope ? {}, thunkCache ? ThunkCache {}}: (lib.fix (this: {
       __type = EvalState;
       __isEvalState = true;
-      __toString = self: _b_ "EvalState ${_ph_ this.scope}";
+      __toString = self: with script-utils.ansi-utils.ansi; box {
+        header = style [fg.cyan bold] "EvalState";
+        body = joinVerticalSep " " [
+          (this.printScope {margin = zeros;})
+          (this.thunkCache.print {margin = zeros;})
+        ];
+      };
+      printScope = args: with script-utils.ansi-utils.ansi; box ({
+        header = style [bold] "Scope";
+        body = ''
+          ${_ph_ (this.scope)}
+        '';
+      } // args);
       inherit scope thunkCache;
 
       fmap = f: EvalState { scope = f this.scope; inherit (this) thunkCache; };
@@ -367,7 +379,7 @@ in rec {
         # TODO: Native import
         #"import" = ...
         # Start shimming out native versions of key builtins
-        #toString = (Eval.pure unit).bind (NodeThunk (parse "x: x.__toString x"));
+        #toString = (Eval.pure unit).bind (Thunk (parse "x: x.__toString x"));
       };
 
     # Expose same builtins on top-level as Nix
@@ -564,6 +576,10 @@ in rec {
         let mb_ = normalised.f (acc.bindings // { inherit _ _a; });
             mb = if isDo mb_ then mb_.__setInitM acc.m else mb_;
         in
+          assert that (isMonadOf M mb) ''
+            handleBindStatement: non-${M} value returned of type ${getT mb}:
+              ${_ph_ mb}
+          '';
           mb.bind ({_, _a}: _.pure {
             bindings = acc.bindings // optionalAttrs (normalised.bindName != null) {
               ${normalised.bindName} = _a;
@@ -761,13 +777,7 @@ in rec {
                 in fold.left (accM: a: accM.bind ({_, _a}: _.bind (f _a a))) startM xs;
 
               # sequenceM :: [Eval a] -> Eval [a]
-              sequenceM = this:
-                this.foldM
-                  (acc: elemM:
-                    Eval.do
-                      {elem = elemM;}
-                      ({_, elem}: _.pure (acc ++ [elem])))
-                  [];
+              sequenceM = this: xs: this.traverse id xs;
 
               # traverse :: (a -> Eval b) -> [a] -> Eval [b]
               traverse = this: f: xs:
@@ -912,11 +922,17 @@ in rec {
 
   CODE = thunkId: nodeType: {
     inherit nodeType thunkId;
-    __isNodeThunk = true;
+    __isThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
     force = collective-lib.tests.expect.anyLambda;
-    forceNoCache = collective-lib.tests.expect.anyLambda;
+    run = collective-lib.tests.expect.anyLambda;
   };
+
+  expectRunWithThunkCache = a: s: s': tc': a':
+    with tests;
+    expect.noLambdasEq
+      (a.run (EvalState {scope = s;})).right
+      { s = EvalState {scope = s'; thunkCache = tc';}; a = a'; };
 
   _tests = with tests;
     let
@@ -977,10 +993,6 @@ in rec {
             in expect.noLambdasEq
               (r // { s = EvalState { scope = r.s.scope; };})  # Ignore the thunk cache
               { s = EvalState {scope = s';}; a = a'; };
-          expectRunWithThunkCache = a: s: s': tc': a': 
-            expect.noLambdasEq
-              (a.run (EvalState {scope = s;})).right
-              { s = EvalState {scope = s'; thunkCache = tc';}; a = a'; };
           expectRunError = s: a: e: 
             expect.noLambdasEq
               (a.run (EvalState {scope = s;})).left
@@ -1294,19 +1306,19 @@ in rec {
 
               printDo = {
                 minimalDoBlock = expect.eq (toString testData.minimalDoBlock) (_b_ ''
-                  Eval.do <monad.nix:10>
+                  Eval.do <monad.nix:13>
                     {a = Eval.pure "pure string";}
                     ({_, a, ...}: (<Eval Unit>))
                 '');
                 doBlock = expect.eq (toString testData.doBlock) (_b_ ''
-                  Eval.do <monad.nix:15>
+                  Eval.do <monad.nix:18>
                     {a = Eval.pure "independent bind";}
                     {b = pure "implicit dependent bind";}
                     {c = {_}: _.pure "implicit dependent bind";}
                     (<Eval string>)
                     ({_, ...}: (<Eval Unit>))
                     ({_, ...}: (<Eval Unit>))
-                    (Eval.do <monad.nix:22>
+                    (Eval.do <monad.nix:25>
                       {a = Eval.pure "nested independent bind";}
                       {b = pure "nested implicit dependent bind";}
                       {c = {_}: _.pure "nested implicit dependent bind";}
@@ -1384,7 +1396,7 @@ in rec {
                 ]) {} [1 2 3];
               };
 
-              thunkCache = with parser; solo {
+              thunkCache = with parser; {
                 getEmpty =
                   expectRunWithThunkCache 
                     (Eval.do
@@ -1397,7 +1409,7 @@ in rec {
                 put = 
                   expectRunWithThunkCache
                     (Eval.do
-                      (NodeThunk (N.string "x")))
+                      (Thunk (N.string "x")))
                     {}
                     {}
                     (ThunkCache {
@@ -1409,13 +1421,13 @@ in rec {
                 putGet = 
                   expectRunWithThunkCache
                     (Eval.do
-                      {x = NodeThunk (N.string "x");}
+                      {x = Thunk (N.string "x");}
                       ({x, _}: _.do
                         {x'0 = force x;}
-                        {x'1 = force x;}
+                        {x'1 = x.force;}
                         {x'2 = force x;}
                         {x'3 = forceNoCache x;}
-                        {x'4 = forceNoCache x;}
+                        {x'4 = x.run;}
                         ({x'0, x'1, x'2, x'3, x'4, _}: _.pure [x'0 x'1 x'2 x'3 x'4])))
                     {}
                     {}

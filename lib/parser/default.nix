@@ -203,18 +203,18 @@ let this = rec {
                    "name" "value" "param" "ellipsis" "op" "op0" "op1" "isRec" ];
 
   printBoxed = node:
-    with script-utils.ansi-utils.ansi; box {
+    if !(isAST node) then node
+    else with script-utils.ansi-utils.ansi; box {
       header = printASTName node;
-      body = _b_ ''
-        ${optionalString ((node.__src or null) != null) (box {
+      body =
+        (optionals ((node.__src or null) != null) [(box {
           header = style [fg.cyan bold] "Source";
           body = _b_ (node.__src);
-        })}
-        ${box {
+        })])
+        ++ [(box {
           header = style [fg.yellow bold] "AST";
           body = _b_ (toString node);
-        }}
-      '';
+        })];
     };
 
   # Pull out all nested __args in DFS order

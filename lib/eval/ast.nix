@@ -1,12 +1,14 @@
 { lib, collective-lib, nix-reflect, ... }:
 
-with collective-lib.typed;
-with nix-reflect.eval.monad;
-
 let
-  inherit (nix-reflect.parser) AST N isAST parse printBoxed;
-  do = Eval.do;
-in rec {
+  inherit (nix-reflect) parser debuglib eval;
+  inherit (parser) AST N isAST parse printBoxed;
+  inherit (eval.monad) Thunk Eval;  # Explicit inclusion to avoid shadow fail against typed.functions.Thunk
+  inherit (Eval) do;
+in 
+with eval.monad;
+with collective-lib.typed;
+rec {
   # Module callable as eval.ast
   __functor = self: self.evalAST;
 
@@ -57,7 +59,7 @@ in rec {
   toNix = x:
     if isEvalError x then x
     else if isMonadOf Eval x then toNix (x.runClosure {})
-    else if isNodeThunk x then toNix (Eval.do (force x))
+    else if isThunk x then toNix (Eval.do (force x))
     else if isEvaluatedLambda x then Eval.x.asLambda
     else if x ? __functor then x // { __functor = self: arg: (toNix x.__functor) self arg; }
     else if builtins.isFunction x then arg: toNix (x arg)
@@ -82,7 +84,7 @@ in rec {
       (whileV 2 "evaluating AST node: ${toString node}")
       (if is EvalError node then liftEither node else pure unit)
       (guard (is AST node) (RuntimeError ''
-        evalNodeM: Expected AST node or NodeThunk, got ${_ph_ node}
+        evalNodeM: Expected AST node or Thunk, got ${_ph_ node}
       ''))
       {res = switch node.nodeType {
         int = evalLiteral node;
@@ -140,7 +142,7 @@ in rec {
       if isEvaluatedLambda x then _.pure x
       else if isEvalError x then _.pure x
       else if isAST x then _.pure x
-      else if isNodeThunk x then _.bind (forceDeeplyM (force x))
+      else if isThunk x then _.bind (forceDeeplyM (force x))
       else if isList x then _.traverse forceDeeply x
       else if isAttrs x then _.do
         {forcedSolos =
@@ -201,8 +203,8 @@ in rec {
     _.do
       (while "evaluating value from scope")
       ({_}: 
-        if isNodeThunk value then _.do
-          (while "evaluating NodeThunk from scope")
+        if isThunk value then _.do
+          (while "evaluating Thunk from scope")
           # Ensure the forced value replaces the thunk for all future computations
           # TODO: Cleaner with a separate thunk store
           {forced = force value;}
@@ -233,7 +235,7 @@ in rec {
   evalList = node: {_, ...}:
     _.do
       (while "evaluating 'list' node")
-      (traverse NodeThunk node.elements);
+      (traverse Thunk node.elements);
 
   # Evaluate an assignment (name-value pair)
   # evalAssignment :: AST -> Eval [{name, value}]  
@@ -242,7 +244,7 @@ in rec {
       (while "evaluating 'assignment' node")
       {name = identifierName node.lhs;}
       #{value = evalNodeM node.rhs;}
-      {value = NodeThunk node.rhs;}
+      {value = Thunk node.rhs;}
       ({_, name, value}: _.pure [{ inherit name value; }]);
 
   # Evaluate an attribute from a source
@@ -328,7 +330,7 @@ in rec {
   storeRecAssignmentAction = node: {_, ...}:
     _.do
       {k = identifierName node.lhs;}
-      {v = NodeThunk node.rhs;}
+      {v = Thunk node.rhs;}
       ({_, k, v}: _.appendScope { ${k} = v; });
 
   # Create a forward reference for an AST inherit statement before evaluating a full attrset
@@ -582,7 +584,7 @@ in rec {
     '');
 
   # obj.a.b.c - traverse the attribute path
-  # traversePath :: bool -> (AST | NodeThunk) -> Node -> Eval a
+  # traversePath :: bool -> (AST | Thunk) -> Node -> Eval a
   traversePath = catchable: attrs_: path: {_}:
     _.do
       {attrs = force attrs_;}
@@ -2228,6 +2230,34 @@ in rec {
       _20_selfParsing = skip {
         parseParserFile =
           expect.True ((evalAST (builtins.readFile ./ast.nix)) ? right);
+      };
+
+      _20_caching = solo {
+        putGetMany =
+          let xsNode = parse "{x = 1;}";
+              getX = xs: {_}: _.do
+                {xs' = force xs;}
+                ({xs', _}: _.pure xs'.x);
+          in expectRunWithThunkCache
+            (Eval.do
+              {xs = evalNodeM xsNode;}
+              ({xs, _}: _.traverse getX [xs xs xs]))
+            {}
+            {}
+            (ThunkCache {
+              thunks = {
+                "0" = CODE 0 "attrs";
+                "1" = CODE 1 "int";
+              };
+              values = {
+                "0" = { x = CODE 1 "int"; };
+                "1" = 1;
+              };
+              misses = 2;
+              hits = 4;
+              nextId = 2;
+            })
+            [1 1 1];
       };
     };
 
