@@ -1025,7 +1025,10 @@ rec {
         };
 
       state = {
-        mk = expect.eq (EvalState {}).scope {};
+        mk.public = expect.eq (EvalState {}).publicScope {};
+        mk.private = expect.eq (EvalState {}).scope {
+          __internal__.withScope = {};
+        };
         fmap =
           expect.noLambdasEq
           ((EvalState {}).fmap (scope: scope // {x = 1;}))
@@ -1238,7 +1241,7 @@ rec {
                   (set (EvalState {scope = {x = 1;};}))
                   {state = get;}
                   ({_, state}: _.pure state.scope);
-                in expectRun {} m {x = 1;} {x = 1;};
+                in expectRun {} m {x = 1;} {x = 1; __internal__.withScope = {};};
 
               appendScope =
                 let m = Eval.do
@@ -1355,12 +1358,12 @@ rec {
                         (set (EvalState {scope = {x = 1;};}))
                         (modify (s: s.fmap (scope: scope // {y = 2;})))
                         {state = get;}
-                        ({_, state}: _.pure state.scope);
+                        ({_, state}: _.pure state.publicScope);
                     b = 
                       Eval.do 
                         (modify (s: s.fmap (scope: scope // {y = 2;})))
                         {state = get;}
-                        ({_, state}: _.pure state.scope);
+                        ({_, state}: _.pure state.publicScope);
                     m = Eval.do a b;
                   in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
@@ -1371,7 +1374,7 @@ rec {
                         (set (EvalState {scope = {x = 1;};}))
                         (modify (s: s.fmap (scope: scope // {y = 2;})))
                         {state = get; }
-                        ({_, state}: _.pure state.scope);
+                        ({_, state}: _.pure state.publicScope);
                     m = Eval.do a;
                   in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
@@ -1381,7 +1384,7 @@ rec {
                     b = {_}: _.do (modify (s: s.fmap (scope: scope // {y = 2;})));
                     c = {_}: _.do 
                       {state = get;}
-                      ({_, state}: _.pure state.scope);
+                      ({_, state}: _.pure state.publicScope);
                     m = Eval.do a b c;
                   in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
@@ -1389,7 +1392,7 @@ rec {
                   let 
                     a = modify (s: s.fmap (const {x = 1;}));
                     b = modify (s: s.fmap (scope: scope // {y = 2;}));
-                    c = {_}: (_.bind _.get).bind ({_, _a, ...}: _.pure _a.scope);
+                    c = {_}: (_.bind _.get).bind ({_, _a, ...}: _.pure _a.publicScope);
                     m = (((Eval.pure unit).bind a).bind b).bind c;
                   in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
               };
@@ -1452,7 +1455,7 @@ rec {
                     (set (EvalState {scope = {test = "value";};}))
                     {stateAfterSet = get;}
                     ({_, stateAfterSet}: _.pure stateAfterSet.publicScope)
-                ) { test = "value"; } (EvalState { test = "value"; });
+                ) { test = "value"; } { test = "value"; };
                 
                 # Test that traverse properly threads state with foldM implementation
                 traverseWithState = expectRun {}
