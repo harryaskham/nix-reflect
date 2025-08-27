@@ -163,76 +163,61 @@ rec {
   isEvalError = x: x ? __isEvalError;
 
   # Run inside the state's forcing mechanism in the case of cache miss
-  forceNoCache = x: {_, ...}: _.do
-    (if isThunk x then x.run else pure x);
+  forceNoCache = x: {_, ...}:
+    if isThunk x then _.do
+      (while "forcing ${x} in forceNoCache")
+      (x.__force)
+    else _.do
+      (while "returning value in forceNoCache against non-Thunk")
+      (pure x);
 
   # Handles forcing a thunk with current state cache and writing it back
-  # Pathway is:
-  # - Call 'force' from monadic code
-  # - This calls 'state.forceThunk'
-  # - This runs the thunk with the current state of the cache and returns the new state
-  # - 'force' concludes by saving the updated ThunkCache (not the whole state, which is local to the thunk).
-  force = x: {_, ...}: _.do
-    ( # Force thunks, persisting the value in the cache upon first force.
-      if isThunk x then {_}: _.do
-        {state = get;}
-        ({state, _}: 
-          let forced = state.forceThunk x.thunkId;
-          in 
-            _.do
-              (whileV 3 "writing back state after cache ${if forced.hit then "hit" else "miss"} on ${x}")
-              (setThunkCache forced.thunkCache)
-              (pure forced.value))
-      # Return other values
-      else pure x
-    );
+  force = x: {_, ...}:
+    _.do
+      (while "forcing a maybe-thunk value:\n${_p_ x}")
+      ({_}:
+        # Force thunks, persisting the value in the cache upon first force.
+        if isThunk x then _.do
+          {thunkCache = getThunkCache;}
+          ({thunkCache, _}: _.do
+            {result = thunkCache.forceThunk x;}
+            ({result, _}: _.do
+              (while "returning forced value after cache ${if result.hit then "hit" else "miss"} on ${x}")
+              (pure result.value)))
+        # Return other values
+        else _.pure x);
 
   isThunk = x: x ? __isThunk;
 
-  mkThunk = _: thunkId: node: lib.fix (self: {
-    __isThunk = true;
-    inherit thunkId;
-    inherit (node) nodeType;
-    __toString = self: "<CODE#${toString thunkId}|${self.nodeType}>";
+  mkThunk = _: thunkId: node: 
+    let _self_ = _;
+    in lib.fix (self: {
+      __isThunk = true;
+      inherit thunkId;
+      inherit (node) nodeType;
+      __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
 
-    # Force the thunk down to WHNF inside the monad without recent cache access.
-    # Retain errors but not state.
-    # Also use the current state of the thunk cache.
-    run = 
-      let _self_ = _;
-      in {_}: _.do
-        {r = 
-          (_self_.do
-            (while "forcing '${self.nodeType}' thunk ${toString self} without cache")
-            # Handle nested thunks (i.e. thunk-of-thunk)
-            # This can use cache again; blows up if a thunk refers to itself.
-            {forced = force node;}
-            ({forced, _}: _.bind (nix-reflect.eval.ast.forceEvalNodeM forced))
-          ).runClosureM;}
-          # TODO: Pull out the updated thunk cache which may have resolved some shared
-          # thunks from the global reference.
-        ({r, _}: if isEvalError r then _.liftEither r else _.pure r);
-
-    # Force the thunk down to WHNF inside the monad without recent cache access.
-    # Retain errors but not state.
-    # Also use the current state of the thunk cache.
-    force = force self;
-  });
+      # Force the thunk down to WHNF.
+      # Should only be run by forceNoCache as part of a cache miss, at most one time per thunk.
+      # TODO: Need Monad.State.Strict equivalent to avoid state being recomputed
+      # from empty every time we force a thunk.
+      # In order to persist the thunkCache after forcing a thunk, run inside
+      # a runClosure/runM action.
+      __force = {_, ...}: _.do
+        (while "forcing ${self} in __force")
+        (runM (_self_.do
+          (while "forcing '${self.nodeType}' thunk")
+          (eval.ast.evalNodeM node)
+        ));
+    });
 
   Thunk = node:
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
     if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
     else {_}: _.do
       (while "constructing '${node.nodeType}' Thunk")
-      {state = get;}
-      ({state, _}:
-        # TODO: Plumb new _ backwards into the thunk state? May avoid thunks recalculating themselves.
-        let thunk = mkThunk _ state.thunkCache.nextId node;
-            cached = state.cacheThunk thunk;
-        in _.do
-          (whileV 3 "writing ${toString thunk} into cache:\n${state.thunkCache}")
-          (setThunkCache cached.thunkCache)
-          (pure thunk));
+      {thunkCache = getThunkCache;}
+      ({thunkCache, _}: _.bind (thunkCache.cacheNode node));
 
   ThunkCache = {
     __toString = self: "ThunkCache";
@@ -268,50 +253,65 @@ rec {
             ${_ph_ this.values}
         '';
 
-        put = thunk: ThunkCache { 
-          inherit (this) values hits misses;
-          thunks = this.thunks // { ${toString this.nextId} = thunk; };
-          nextId = this.nextId + 1;
-        };
+        # Cache and return the thunk that evaluates the node.
+        cacheNode = node: {_}:
+          let 
+            thunkId = toString this.nextId;
+            thunk = mkThunk _ thunkId node;
+          in _.do
+            (whileV 3 "writing ${thunk} into cache:\n${this}")
+            (setThunkCache (ThunkCache { 
+              inherit (this) values hits misses;
+              thunks = this.thunks // { ${thunkId} = thunk; };
+              nextId = this.nextId + 1;
+            }))
+            (pure thunk);
 
-        force = thunkId_:
-          let thunkId = toString thunkId_;
-              thunk = 
-                assert that (this.thunks ? ${thunkId}) ''
-                  ThunkCache.force: thunkId ${thunkId} not found in cache:
-                    ${this}
-                '';
-                this.thunks.${thunkId};
-              cachedValue = this.values.${thunkId};
-              forcedValue = 
-                (Eval.do 
-                  (whileV 3 "forcing thunk#${thunkId} in:\n${this}")
-                  (forceNoCache thunk)
-                ).runClosure {};
-          in 
-          if this.values ? ${thunkId} then 
-            let this' = ThunkCache {
-              inherit (this) thunks values nextId misses;
-              hits = this.hits + 1;
-            };
-            in (log.v 3).show "ThunkCache hit for ${thunk}:\n${this'}" {
-              value = cachedValue;
-              hit = true;
-              cache = this';
-            } 
-          else 
-            let this' = ThunkCache {
-              inherit (this) thunks nextId hits;
-              misses = this.misses + 1;
-              values = this.values // { 
-                ${thunkId} = forcedValue;
-              };
-            };
-            in (log.v 3).show "ThunkCache miss for ${thunk}:\n${this'}" {
-              value = forcedValue;
-              hit = false;
-              cache = this';
-            };
+        # Argument is just used as ID carrier.
+        # TODO: ThunkCache could just hold nextId and values.
+        forceThunk = thunk_:
+          let 
+            thunkId = thunk_.thunkId;
+
+            # Ensure the thunk matches that of the cache.
+            thunk = 
+              assert that (this.thunks ? ${thunkId}) ''
+                ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
+                  ${this}
+              '';
+              this.thunks.${thunkId};
+
+          in {_}: _.do
+            (while "forcing ${thunk} in forceThunk")
+            ({_}:
+              (if this.values ? ${thunkId} then _.do
+                (while "ThunkCache hit for ${thunk}:\n${this}")
+                (setThunkCache (ThunkCache {
+                  inherit (this) thunks values nextId misses;
+                  hits = this.hits + 1;
+                }))
+                (pure {
+                  hit = true;
+                  value = this.values.${thunkId};
+                })
+
+              else _.do
+                (while "ThunkCache miss for ${thunk}:\n${this}")
+                {value = forceNoCache thunk;}
+                # Get the state after forcing, which may have new forced values elsewhere.
+                {thunkCache = getThunkCache;}
+                ({value, thunkCache, _}: _.do
+                  (setThunkCache (ThunkCache {
+                    inherit (thunkCache) thunks nextId hits;
+                    misses = thunkCache.misses + 1;
+                    values = thunkCache.values // { 
+                      ${thunkId} = value;
+                    };
+                  }))
+                  (pure {
+                    inherit value;
+                    hit = false;
+                  }))));
       }));
   };
 
@@ -346,18 +346,6 @@ rec {
       } // args);
 
       fmap = f: EvalState { scope = f this.scope; inherit (this) thunkCache; };
-
-      cacheThunk = thunk: { 
-        thunkCache = this.thunkCache.put thunk;
-      };
-
-      forceThunk = thunkId: 
-        let forced = this.thunkCache.force thunkId;
-        in {
-          inherit (forced) hit;
-          thunkCache = forced.cache;
-          value = forced.value;
-        };
     }));
   };
 
@@ -589,6 +577,9 @@ rec {
           assert that (isMonadOf M mb) ''
             handleBindStatement: non-${M} value returned of type ${getT mb}:
               ${_ph_ mb}
+
+            In do-block:
+              ${_ph_ doSelf}
           '';
           mb.bind ({_, _a}: _.pure {
             bindings = acc.bindings // optionalAttrs (normalised.bindName != null) {
@@ -800,9 +791,6 @@ rec {
                 let startM = this.pure initAcc;
                 in fold.left (accM: a: accM.bind ({_, _a}: _.bind (f _a a))) startM xs;
 
-              # sequenceM :: [Eval a] -> Eval [a]
-              sequenceM = this: xs: this.traverse id xs;
-
               # traverse :: (a -> Eval b) -> [a] -> Eval [b]
               traverse = this: f: xs:
                 fold.left (accM: x: accM.bind ({_, _a, ...}: _.do
@@ -849,24 +837,20 @@ rec {
               runClosure = this: _: (this.runEmpty_ {}).unwrap;
               runClosureM = this: {_, ...}: _.pure (this.runClosure {});
 
-              runM = this: action: this.do
-                {thunkCache = getThunkCache;}
-                # Run independently
-                {e = {thunkCache, _}: 
-                  _.do
-                    (while "running action with inherited ThunkCache")
-                    ((Eval.do
-                      (setThunkCache thunkCache)
-                      (action)).runEmptyM);}
-                # Pull out the ThunkCache
-                ({e, _}: _.do
-                  ({_}: e.case {
-                    Left = err: _.liftEither err;
-                    Right = r: _.do
-                      (while "setting thunk cache after runM")
-                      (setThunkCache r.s.thunkCache)
-                      ({_}: _.pure r.a);
-                  }));
+              # Run the given action as a closure, inheriting and passing on the current thunk cache.
+              # TODO: Do we need to manually set state here?
+              # runEmpty is causing masses of re-computation
+              runM = this: closure:
+                this.do
+                  (while "entering closure via runM")
+                  # By saving scope, we can simulate running the closure as a completely
+                  # new action without needing to force the state to run via runEmpty.
+                  {thunkCache = getThunkCache;}
+                  ({thunkCache, _}: _.saveScope ({_}: _.do
+                    (while "running closure in saved scope and inherited ThunkCache")
+                    (setThunkCache thunkCache)
+                    #(setScope initScope)
+                    (closure)));
             };
           };
         # Bind 'this'
@@ -875,7 +859,6 @@ rec {
   };
 
   liftA2 = f: aM: bM: {_, ...}: _.liftA2 f aM bM;
-  sequenceM = this: xs: {_, ...}: _.sequenceM xs;
   foldM = f: initAcc: xs: {_, ...}: _.foldM f initAcc xs;
   traverse = f: xs: {_, ...}: _.traverse f xs;
 
@@ -982,11 +965,11 @@ rec {
     ({scope, _}: _.whileV 3 "tracing scope:\n${_p_ scope}");
 
   CODE = thunkId: nodeType: {
-    inherit nodeType thunkId;
+    inherit nodeType;
+    thunkId = toString thunkId;
     __isThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
-    force = collective-lib.tests.expect.anyLambda;
-    run = collective-lib.tests.expect.anyLambda;
+    __force = collective-lib.tests.expect.anyLambda;
   };
 
   expectRunWithThunkCache = a: s: s': tc': a':
@@ -1007,7 +990,7 @@ rec {
           }; 
       };
     in suite {
-      either =
+      _00_either =
         let
           E = Either EvalError Int;
         in with E; with EvalError; {
@@ -1024,7 +1007,7 @@ rec {
             in expect.noLambdasEq ((Right (Int 1)).fmap (_: parser.N.int 42)) (Right' (parser.N.int 42));
         };
 
-      state = {
+      _01_state = {
         mk.public = expect.eq (EvalState {}).publicScope {};
         mk.private = expect.eq (EvalState {}).scope {
           __internal__.withScope = {};
@@ -1035,7 +1018,7 @@ rec {
           (EvalState {scope = {x = 1;};});
       };
 
-      monad = 
+      _02_monad = 
         let
           a = rec {
             _42 = Eval.pure (Int 42);
@@ -1077,18 +1060,19 @@ rec {
             getT.do = expect.True (tEq (Eval Unit) (getT (Eval.do (Eval.pure unit))));
           };
 
-          _00_pure = expectRun {} a._42 {} (Int 42);
-          _01_set = expectRun {} a.stateXIs2 { x = 2; } unit;
-          _02_modify = expectRun {} a.stateXTimes3 { x = 6; } unit;
-          _04_bind.get = expectRun {} a.getStatePlusValue { x = 6; } (Int 48);
-          _05_bind.thenThrows = expectRunError {} a.thenThrows (Throw "test error");
-          _06_bind.bindAfterThrow = expectRunError {} a.bindAfterThrow (Throw "test error");
-          _07_catch.noError = expectRun {} (a._42.catch (_: throw "no")) {} (Int 42);
-          _08_catch.withError = expectRun {} a.catchAfterThrow { x = 6; } "handled error 'EvalError.Throw:\n  test error'";
-          _09_catch.thenFmap = expectRun {} a.fmapAfterCatch { x = 6; } "handled error 'EvalError.Throw:\n  test error' then ...";
+          _00_chain = {
+            _00_pure = expectRun {} a._42 {} (Int 42);
+            _01_set = expectRun {} a.stateXIs2 { x = 2; } unit;
+            _02_modify = expectRun {} a.stateXTimes3 { x = 6; } unit;
+            _04_bind.get = expectRun {} a.getStatePlusValue { x = 6; } (Int 48);
+            _05_bind.thenThrows = expectRunError {} a.thenThrows (Throw "test error");
+            _06_bind.bindAfterThrow = expectRunError {} a.bindAfterThrow (Throw "test error");
+            _07_catch.noError = expectRun {} (a._42.catch (_: throw "no")) {} (Int 42);
+            _08_catch.withError = expectRun {} a.catchAfterThrow { x = 6; } "handled error 'EvalError.Throw:\n  test error'";
+            _09_catch.thenFmap = expectRun {} a.fmapAfterCatch { x = 6; } "handled error 'EvalError.Throw:\n  test error' then ...";
+          };
           
-
-          _10_signatures = {
+          _01_signatures = {
             IndependentAction.monad =
               expect.eq (bindStatementSignature Eval (Eval.pure unit)) "IndependentAction";
             IndependentAction.do =
@@ -1101,7 +1085,7 @@ rec {
               expect.eq (bindStatementSignature Eval {a = {_}: _.pure unit;}) "DependentBind";
           };
 
-          _11_inferMonad = {
+          _02_inferMonad = {
             IndependentAction.monad =
               expect.True (tEq Eval (inferMonadFromStatement (Eval.pure unit)));
             IndependentAction.do =
@@ -1114,52 +1098,54 @@ rec {
               expect.error (inferMonadFromStatement {a = {_}: _.pure unit;});
           };
 
-          do.notation = {
-            const = expectRun {} (Eval.do (Eval.pure 123)) {} 123;
+          _03_doNotation = {
+            _00_basic = {
+              const = expectRun {} (Eval.do (Eval.pure 123)) {} 123;
 
-            constBound = expectRun {} (Eval.do ({_}: _.pure 123)) {} 123;
+              constBound = expectRun {} (Eval.do ({_}: _.pure 123)) {} 123;
 
-            bindOne =
-              let m = Eval.do {x = Eval.pure 1;} ({_, ...}: _.pure unit);
-              in expectRun {} m {} unit;
+              bindOne =
+                let m = Eval.do {x = Eval.pure 1;} ({_, ...}: _.pure unit);
+                in expectRun {} m {} unit;
 
-            bindOneBound =
-              let m = Eval.do {x = {_}: _.pure 1;} ({_}: _.pure unit);
-              in expectRun {} m {} unit;
+              bindOneBound =
+                let m = Eval.do {x = {_}: _.pure 1;} ({_}: _.pure unit);
+                in expectRun {} m {} unit;
 
-            bindOneGetOne =
-              let m = Eval.do {x = Eval.pure 1;} ({_, x}: _.pure x);
-              in expectRun {} m {} 1;
+              bindOneGetOne =
+                let m = Eval.do {x = Eval.pure 1;} ({_, x}: _.pure x);
+                in expectRun {} m {} 1;
 
-            dependentBindGet = 
-              let m = Eval.do
-                {x = {_}: _.pure 1;}
-                {y = {_, x}: _.pure (x + 1);}
-                ({_, x, y}: _.pure (x + y));
-              in expectRun {} m {} 3;
+              dependentBindGet = 
+                let m = Eval.do
+                  {x = {_}: _.pure 1;}
+                  {y = {_, x}: _.pure (x + 1);}
+                  ({_, x, y}: _.pure (x + y));
+                in expectRun {} m {} 3;
 
-            boundDo = 
-              let do = Eval.do; in with Eval;
-              let m = do
-                {x = Eval.pure 1;}
-                {y = Eval.pure 2;}
-                ({x, y, ...}: Eval.pure (x + y));
-              in expectRun {} m {} 3;
+              boundDo = 
+                let do = Eval.do; in with Eval;
+                let m = do
+                  {x = Eval.pure 1;}
+                  {y = Eval.pure 2;}
+                  ({x, y, ...}: Eval.pure (x + y));
+                in expectRun {} m {} 3;
 
-            guard.pass =
-              let m = Eval.do
-                ( {_}: _.guard true (TypeError "fail"))
-                ( {_}: _.pure unit );
-              in expectRun {} m {} unit;
+              guard.pass =
+                let m = Eval.do
+                  ( {_}: _.guard true (TypeError "fail"))
+                  ( {_}: _.pure unit );
+                in expectRun {} m {} unit;
 
-            guard.fail =
-              let m = Eval.do
-                ( {_}: _.guard false (TypeError "fail"))
-                ( {_}: _.pure unit );
-              in expectRunError {} m (TypeError "fail");
+              guard.fail =
+                let m = Eval.do
+                  ( {_}: _.guard false (TypeError "fail"))
+                  ( {_}: _.pure unit );
+                in expectRunError {} m (TypeError "fail");
+            };
 
-            setGet = {
-              helpers = {
+            _01_setGet = {
+              _00_helpers = {
                 _00_get = 
                   let m = Eval.do
                     (getPublicScope);
@@ -1217,187 +1203,189 @@ rec {
                   in expectRun {} m {cleared = true;} {x = 9;};
               };
 
-              do =
-                let m = Eval.do
-                  (set (EvalState {scope = {x = 1;};}))
-                  get;
-                in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
-
-              chainBlocks =
-                let a = Eval.do (set (EvalState {scope = {x = 1;};}));
-                    b = Eval.do a get;
-                    m = Eval.do b;
-                in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
-
-              withoutDo =
-                let a = set (EvalState {scope = {x = 1;};});
-                    b = modify (s: s.fmap (scope: {x = scope.x + 1;}));
-                    c = {_}: (_.bind _.get).bind ({_, _a}: _.pure _a.scope.x);
-                    m = (((Eval.pure unit).bind a).bind b).bind c;
-                in expectRun {} m {x = 2;} 2;
-
-              getScope =
-                let m = Eval.do
-                  (set (EvalState {scope = {x = 1;};}))
-                  {state = get;}
-                  ({_, state}: _.pure state.scope);
-                in expectRun {} m {x = 1;} {x = 1; __internal__.withScope = {};};
-
-              appendScope =
-                let m = Eval.do
-                  (set (EvalState {scope = {x = 1;};}))
-                  (modify (s: s.fmap (scope: scope // {y = 2;})))
-                  {state = get;}
-                  ({_, state}: _.pure state.publicScope);
-                in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
-
-              overwriteScopeAppend =
-                let m = Eval.do
-                  (set (EvalState {scope = {x = 1;};}))
-                  (modify (s: s.fmap (scope: scope // {x = 2;})))
-                  {state = get;}
-                  ({_, state}: _.pure state.publicScope);
-                in expectRun {} m {x = 2;} {x = 2;};
-
-              overwriteScopePrepend =
-                let m = Eval.do
-                  (set (EvalState {scope = {x = 1;};}))
-                  (modify (s: s.fmap (scope: {x = 2;} // scope)))
-                  {state = get;}
-                  ({_, state}: _.pure state.publicScope);
-                in expectRun {} m {x = 1;} {x = 1;};
-              
-              saveScopeAppendScope =
-                let m = Eval.do
-                  (setScope {x = 1;})
-                  (saveScope ({_}: _.do
-                    (appendScope {y = 2;})
-                    getPublicScope
-                  ));
-                in expectRun {} m {x = 1;} {x = 1; y = 2;};
-
-              nestedSaveScope =
-                let m = Eval.do
-                  (setScope {x = 1;})
-                  (saveScope ({_}: _.do
-                    (appendScope {y = 2;})
-                    (saveScope ({_}: _.do
-                      (appendScope {z = 3;})
-                      getPublicScope
-                    ))
-                  ));
-                in expectRun {} m {x = 1;} {x = 1; y = 2; z = 3;};
-
-              withScope = {
-                _00_empty = 
-                  expectRun {} 
-                  (Eval.do (setWithScope {})) {} unit;
-                _01_set = 
-                  expectRun {}
-                  (Eval.do (setWithScope {x = 1;})) 
-                  {__internal__.withScope.x = 1;} unit;
-                _02_append = 
-                  expectRun {}
-                  (Eval.do (appendWithScope {x = 1;})) 
-                  {__internal__.withScope.x = 1;} unit;
-                _03_overwrite = 
-                  expectRun {}
-                  (Eval.do (setWithScope {x = 2;}) (appendWithScope {x = 3;}))
-                  {__internal__.withScope.x = 3;} unit;
-                _04_appendAppend = 
-                  expectRun {} 
-                  (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;})) 
-                  {__internal__.withScope = {x = 1; y = 2;};} unit;
-                _05_appendAppendAppend = 
-                  expectRun {} 
-                  (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;}) (appendWithScope {z = 3;})) 
-                  {__internal__.withScope = {x = 1; y = 2; z = 3;};} unit;
-              };
-
-              differentBlocks = {
-
-                differentBlocks =
-                  let a = set (EvalState {scope = {x = 1;};});
-                      b = get;
-                      m = Eval.do a b;
+              _01_blocks = {
+                do =
+                  let m = Eval.do
+                    (set (EvalState {scope = {x = 1;};}))
+                    get;
                   in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
-                differentBlocksBind =
-                  let a = set (EvalState {scope = {x = 1;};});
-                      b = get;
-                      m = ((Eval.pure unit).bind a).bind b;
-                  in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
-
-                differentDoBlocks =
-                  let a = {_}: _.do (set (EvalState {scope = {x = 1;};}));
-                      b = {_}: _.do get;
-                      m = Eval.do a b;
-                  in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
-
-                differentEvalDoBlocks =
+                chainBlocks =
                   let a = Eval.do (set (EvalState {scope = {x = 1;};}));
-                      b = Eval.do get;
-                      m = Eval.do a b;
+                      b = Eval.do a get;
+                      m = Eval.do b;
                   in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
-                appendScopeDifferentEvalBlock =
-                  let 
-                    a = 
-                      Eval.do 
-                        (set (EvalState {scope = {x = 1;};}))
-                        (modify (s: s.fmap (scope: scope // {y = 2;})))
+                withoutDo =
+                  let a = set (EvalState {scope = {x = 1;};});
+                      b = modify (s: s.fmap (scope: {x = scope.x + 1;}));
+                      c = {_}: (_.bind _.get).bind ({_, _a}: _.pure _a.scope.x);
+                      m = (((Eval.pure unit).bind a).bind b).bind c;
+                  in expectRun {} m {x = 2;} 2;
+
+                getScope =
+                  let m = Eval.do
+                    (set (EvalState {scope = {x = 1;};}))
+                    {state = get;}
+                    ({_, state}: _.pure state.scope);
+                  in expectRun {} m {x = 1;} {x = 1; __internal__.withScope = {};};
+
+                appendScope =
+                  let m = Eval.do
+                    (set (EvalState {scope = {x = 1;};}))
+                    (modify (s: s.fmap (scope: scope // {y = 2;})))
+                    {state = get;}
+                    ({_, state}: _.pure state.publicScope);
+                  in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+
+                overwriteScopeAppend =
+                  let m = Eval.do
+                    (set (EvalState {scope = {x = 1;};}))
+                    (modify (s: s.fmap (scope: scope // {x = 2;})))
+                    {state = get;}
+                    ({_, state}: _.pure state.publicScope);
+                  in expectRun {} m {x = 2;} {x = 2;};
+
+                overwriteScopePrepend =
+                  let m = Eval.do
+                    (set (EvalState {scope = {x = 1;};}))
+                    (modify (s: s.fmap (scope: {x = 2;} // scope)))
+                    {state = get;}
+                    ({_, state}: _.pure state.publicScope);
+                  in expectRun {} m {x = 1;} {x = 1;};
+                
+                saveScopeAppendScope =
+                  let m = Eval.do
+                    (setScope {x = 1;})
+                    (saveScope ({_}: _.do
+                      (appendScope {y = 2;})
+                      getPublicScope
+                    ));
+                  in expectRun {} m {x = 1;} {x = 1; y = 2;};
+
+                nestedSaveScope =
+                  let m = Eval.do
+                    (setScope {x = 1;})
+                    (saveScope ({_}: _.do
+                      (appendScope {y = 2;})
+                      (saveScope ({_}: _.do
+                        (appendScope {z = 3;})
+                        getPublicScope
+                      ))
+                    ));
+                  in expectRun {} m {x = 1;} {x = 1; y = 2; z = 3;};
+
+                withScope = {
+                  _00_empty = 
+                    expectRun {} 
+                    (Eval.do (setWithScope {})) {} unit;
+                  _01_set = 
+                    expectRun {}
+                    (Eval.do (setWithScope {x = 1;})) 
+                    {__internal__.withScope.x = 1;} unit;
+                  _02_append = 
+                    expectRun {}
+                    (Eval.do (appendWithScope {x = 1;})) 
+                    {__internal__.withScope.x = 1;} unit;
+                  _03_overwrite = 
+                    expectRun {}
+                    (Eval.do (setWithScope {x = 2;}) (appendWithScope {x = 3;}))
+                    {__internal__.withScope.x = 3;} unit;
+                  _04_appendAppend = 
+                    expectRun {} 
+                    (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;})) 
+                    {__internal__.withScope = {x = 1; y = 2;};} unit;
+                  _05_appendAppendAppend = 
+                    expectRun {} 
+                    (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;}) (appendWithScope {z = 3;})) 
+                    {__internal__.withScope = {x = 1; y = 2; z = 3;};} unit;
+                };
+
+                differentBlocks = {
+
+                  differentBlocks =
+                    let a = set (EvalState {scope = {x = 1;};});
+                        b = get;
+                        m = Eval.do a b;
+                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+
+                  differentBlocksBind =
+                    let a = set (EvalState {scope = {x = 1;};});
+                        b = get;
+                        m = ((Eval.pure unit).bind a).bind b;
+                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+
+                  differentDoBlocks =
+                    let a = {_}: _.do (set (EvalState {scope = {x = 1;};}));
+                        b = {_}: _.do get;
+                        m = Eval.do a b;
+                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+
+                  differentEvalDoBlocks =
+                    let a = Eval.do (set (EvalState {scope = {x = 1;};}));
+                        b = Eval.do get;
+                        m = Eval.do a b;
+                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+
+                  appendScopeDifferentEvalBlock =
+                    let 
+                      a = 
+                        Eval.do 
+                          (set (EvalState {scope = {x = 1;};}))
+                          (modify (s: s.fmap (scope: scope // {y = 2;})))
+                          {state = get;}
+                          ({_, state}: _.pure state.publicScope);
+                      m = Eval.do a;
+                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+
+                  appendScopeDifferentEvalBlocks =
+                    let 
+                      a = 
+                        Eval.do 
+                          (set (EvalState {scope = {x = 1;};}))
+                          (modify (s: s.fmap (scope: scope // {y = 2;})))
+                          {state = get;}
+                          ({_, state}: _.pure state.publicScope);
+                      b = 
+                        Eval.do 
+                          (modify (s: s.fmap (scope: scope // {y = 2;})))
+                          {state = get;}
+                          ({_, state}: _.pure state.publicScope);
+                      m = Eval.do a b;
+                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+
+                  appendScopeDifferentBlock =
+                    let 
+                      a = 
+                        {_}: _.do 
+                          (set (EvalState {scope = {x = 1;};}))
+                          (modify (s: s.fmap (scope: scope // {y = 2;})))
+                          {state = get; }
+                          ({_, state}: _.pure state.publicScope);
+                      m = Eval.do a;
+                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+
+                  appendScopeDifferentBlocks =
+                    let 
+                      a = {_}: _.do (set (EvalState {scope = {x = 1;};}));
+                      b = {_}: _.do (modify (s: s.fmap (scope: scope // {y = 2;})));
+                      c = {_}: _.do 
                         {state = get;}
                         ({_, state}: _.pure state.publicScope);
-                    m = Eval.do a;
-                  in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                      m = Eval.do a b c;
+                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
-                appendScopeDifferentEvalBlocks =
-                  let 
-                    a = 
-                      Eval.do 
-                        (set (EvalState {scope = {x = 1;};}))
-                        (modify (s: s.fmap (scope: scope // {y = 2;})))
-                        {state = get;}
-                        ({_, state}: _.pure state.publicScope);
-                    b = 
-                      Eval.do 
-                        (modify (s: s.fmap (scope: scope // {y = 2;})))
-                        {state = get;}
-                        ({_, state}: _.pure state.publicScope);
-                    m = Eval.do a b;
-                  in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
-
-                appendScopeDifferentBlock =
-                  let 
-                    a = 
-                      {_}: _.do 
-                        (set (EvalState {scope = {x = 1;};}))
-                        (modify (s: s.fmap (scope: scope // {y = 2;})))
-                        {state = get; }
-                        ({_, state}: _.pure state.publicScope);
-                    m = Eval.do a;
-                  in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
-
-                appendScopeDifferentBlocks =
-                  let 
-                    a = {_}: _.do (set (EvalState {scope = {x = 1;};}));
-                    b = {_}: _.do (modify (s: s.fmap (scope: scope // {y = 2;})));
-                    c = {_}: _.do 
-                      {state = get;}
-                      ({_, state}: _.pure state.publicScope);
-                    m = Eval.do a b c;
-                  in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
-
-                appendScopeDifferentBlocksBindNoDo =
-                  let 
-                    a = modify (s: s.fmap (const {x = 1;}));
-                    b = modify (s: s.fmap (scope: scope // {y = 2;}));
-                    c = {_}: (_.bind _.get).bind ({_, _a, ...}: _.pure _a.publicScope);
-                    m = (((Eval.pure unit).bind a).bind b).bind c;
-                  in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                  appendScopeDifferentBlocksBindNoDo =
+                    let 
+                      a = modify (s: s.fmap (const {x = 1;}));
+                      b = modify (s: s.fmap (scope: scope // {y = 2;}));
+                      c = {_}: (_.bind _.get).bind ({_, _a, ...}: _.pure _a.publicScope);
+                      m = (((Eval.pure unit).bind a).bind b).bind c;
+                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                };
               };
 
-              printDo = {
+              _02_printDo = {
                 minimalDoBlock = expect.eq (toString testData.minimalDoBlock) (_b_ ''
                   Eval.do <monad.nix:13>
                     {a = Eval.pure "pure string";}
@@ -1420,37 +1408,37 @@ rec {
                       ({_, ...}: (<Eval Unit>)))
                 '');
               };
-
-            };
               
-            composes = 
-              let a = Eval.do (modify (s: s.fmap (scope: scope // {x = 1;})));
-                  b = Eval.do (modify (s: s.fmap (scope: scope // {y = 2;})));
-              in {
-                scopeExists = expectRun {} a {x = 1;} unit;
+              _03_composes = 
+                let a = Eval.do (modify (s: s.fmap (scope: scope // {x = 1;})));
+                    b = Eval.do (modify (s: s.fmap (scope: scope // {y = 2;})));
+                in {
+                  scopeExists = expectRun {} a {x = 1;} unit;
 
-                doBind =
-                  let c = (a.bind ({_}: b.bind ({_}: _.pure unit))).bind ({_}: _.bind _.get);
-                  in expectRun {} c {x = 1; y = 2;} (EvalState { scope = {x = 1; y = 2;};});
+                  doBind =
+                    let c = (a.bind ({_}: b.bind ({_}: _.pure unit))).bind ({_}: _.bind _.get);
+                    in expectRun {} c {x = 1; y = 2;} (EvalState { scope = {x = 1; y = 2;};});
 
-                doSq =
-                  let c = (a.sq b).bind ({_}: _.bind _.get);
-                  in expectRun {} c {x = 1; y = 2;} (EvalState {scope = {x = 1; y = 2;};});
-              };
+                  doSq =
+                    let c = (a.sq b).bind ({_}: _.bind _.get);
+                    in expectRun {} c {x = 1; y = 2;} (EvalState {scope = {x = 1; y = 2;};});
+                };
+            };
 
-              foldM = {
+            _02_functions = {
+              _00_foldM = {
                 empty = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [])) {} 0;
                 single = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [5])) {} 5;
                 multiple = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])) {} 6;
               };
 
-              traverse = {
-                empty = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
-                single = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
-                multiple = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
+              _01_traverse = {
+                _00_empty = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
+                _01_single = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
+                _02_multiple = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
                 
                 # Simple test showing get() works correctly in do-block  
-                simpleGetIssue = expectRun {} (
+                _03_simpleGetIssue = expectRun {} (
                   Eval.do
                     (set (EvalState {scope = {test = "value";};}))
                     {stateAfterSet = get;}
@@ -1458,7 +1446,7 @@ rec {
                 ) { test = "value"; } { test = "value"; };
                 
                 # Test that traverse properly threads state with foldM implementation
-                traverseWithState = expectRun {}
+                _04_traverseWithState = expectRun {}
                   (Eval.do
                     (set (EvalState {scope = {counter = 0; seen = [];};}))
                     {result = {_, ...}: _.traverse (x: 
@@ -1480,59 +1468,52 @@ rec {
                   finalCounter = 15;
                 };
               };
+            };
 
-              sequenceM = {
-                empty = expectRun {} ((Eval.pure unit).sequenceM []) {} [];
-                single = expectRun {} ((Eval.pure unit).sequenceM [({_, ...}: _.pure 42)]) {} [42];
-                multiple = expectRun {} ((Eval.pure unit).sequenceM [
-                  (Eval.pure 1) (Eval.pure 2) (Eval.pure 3)
-                ]) {} [1 2 3];
-              };
+            _05_thunkCache = with parser; {
+              _00_getEmpty =
+                expectRunWithThunkCache 
+                  (Eval.do
+                    (getThunkCache))
+                  {}
+                  {}
+                  (ThunkCache {})
+                  (ThunkCache {});
 
-              thunkCache = with parser; {
-                getEmpty =
-                  expectRunWithThunkCache 
-                    (Eval.do
-                      (getThunkCache))
-                    {}
-                    {}
-                    (ThunkCache {})
-                    (ThunkCache {});
+              _01_put = 
+                expectRunWithThunkCache
+                  (Eval.do
+                    (Thunk (N.string "x")))
+                  {}
+                  {}
+                  (ThunkCache {
+                    thunks = { "0" = CODE 0 "string"; };
+                    nextId = 1;
+                  })
+                  (CODE 0 "string");
 
-                put = 
-                  expectRunWithThunkCache
-                    (Eval.do
-                      (Thunk (N.string "x")))
-                    {}
-                    {}
-                    (ThunkCache {
-                      thunks = { "0" = CODE 0 "string"; };
-                      nextId = 1;
-                    })
-                    (CODE 0 "string");
-
-                putGet = 
-                  expectRunWithThunkCache
-                    (Eval.do
-                      {x = Thunk (N.string "x");}
-                      ({x, _}: _.do
-                        {x'0 = force x;}
-                        {x'1 = x.force;}
-                        {x'2 = force x;}
-                        {x'3 = forceNoCache x;}
-                        {x'4 = x.run;}
-                        ({x'0, x'1, x'2, x'3, x'4, _}: _.pure [x'0 x'1 x'2 x'3 x'4])))
-                    {}
-                    {}
-                    (ThunkCache {
-                      thunks = { "0" = CODE 0 "string"; };
-                      values = { "0" = "x"; };
-                      misses = 1;
-                      hits = 2;
-                      nextId = 1;
-                    })
-                    ["x" "x" "x" "x" "x"];
-              };
+              _02_putGet = 
+                expectRunWithThunkCache
+                  (Eval.do
+                    {x = Thunk (N.string "x");}
+                    ({x, _}: _.do
+                      {x'0 = force x;}        # Miss
+                      {x'1 = forceNoCache x;} # N/A
+                      {x'2 = force x;}        # Hit
+                      {x'3 = forceNoCache x;} # N/A
+                      {x'4 = force x;}        # Hit
+                      ({x'0, x'1, x'2, x'3, x'4, _}: _.pure [x'0 x'1 x'2 x'3 x'4])))
+                  {}
+                  {}
+                  (ThunkCache {
+                    thunks = { "0" = CODE 0 "string"; };
+                    values = { "0" = "x"; };
+                    misses = 1;
+                    hits = 2;
+                    nextId = 1;
+                  })
+                  ["x" "x" "x" "x" "x"];
+            };
 
           };
         };
