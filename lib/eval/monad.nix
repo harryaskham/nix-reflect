@@ -321,6 +321,14 @@ rec {
     mempty = _: EvalState {};
 
     __functor = self: {scope ? {}, thunkCache ? ThunkCache {}}: (lib.fix (this: {
+      inherit thunkCache;
+      scope = scope // {
+        __internal__ = {
+          withScope = scope.__internal__.withScope or {};
+        };
+      };
+      publicScope = removeAttrs scope ["__internal__"];
+
       __type = EvalState;
       __isEvalState = true;
       __toString = self: with script-utils.ansi-utils.ansi; box {
@@ -336,7 +344,6 @@ rec {
           ${_ph_ (this.scope)}
         '';
       } // args);
-      inherit scope thunkCache;
 
       fmap = f: EvalState { scope = f this.scope; inherit (this) thunkCache; };
 
@@ -755,11 +762,16 @@ rec {
               getThunkCache = this: this.bind getThunkCache;
               setThunkCache = this: this.bind setThunkCache;
               getScope = this: this.bind getScope;
+              getPublicScope = this: this.bind getPublicScope;
               setScope = this: newScope: this.bind (setScope newScope);
               saveScope = this: f: this.bind (saveScope f);
               modifyScope = this: f: this.bind (modifyScope f);
               prependScope = this: newScope: this.bind (prependScope newScope);
               appendScope = this: newScope: this.bind (appendScope newScope);
+
+              getWithScope = this: this.bind getWithScope;
+              setWithScope = this: newScope: this.bind (setWithScope newScope);
+              appendWithScope = this: newScope: this.bind (appendWithScope newScope);
 
               do = this: statement: mkDo Eval this [] statement;
               pure = this: x: set_e_Right this x;
@@ -910,6 +922,12 @@ rec {
       {state = get;}
       ({_, state}: _.pure state.scope);
 
+  getPublicScope = {_, ...}:
+    _.do
+      (while "getting public scope")
+      {state = get;}
+      ({_, state}: _.pure state.publicScope);
+
   prependScope = newScope: {_, ...}:
     _.do
       (while "prepending scope")
@@ -931,6 +949,37 @@ rec {
       (while "appending monadic scope")
       {newScope = newScopeM;}
       ({_, newScope}: _.appendScope newScope);
+
+  getWithScope = {_}: _.do
+    (while "getting 'with' scope")
+    {scope = getScope;}
+    ({scope, _}: _.pure scope.__internal__.withScope);
+
+  setWithScope = withScope: {_}: _.do
+    (while "setting 'with' scope")
+    {scope = getScope;}
+    ({scope, _}: _.setScope (scope // {
+      __internal__ = scope.__internal__ // { 
+        inherit withScope; 
+      };
+    }));
+
+  appendWithScope = withScope: {_}: _.do
+    (while "appending 'with' scope")
+    {scope = getScope;}
+    ({scope, _}: _.setScope (scope // {
+      __internal__ = scope.__internal__ // { 
+        withScope = (scope.__internal__.withScope or {}) // withScope;
+      };
+    }));
+
+  traceWithScope = {_}: _.do
+    {scope = getWithScope;}
+    ({scope, _}: _.whileV 3 "tracing 'with' scope:\n${_p_ scope}");
+
+  traceScope = {_}: _.do
+    {scope = getScope;}
+    ({scope, _}: _.whileV 3 "tracing scope:\n${_p_ scope}");
 
   CODE = thunkId: nodeType: {
     inherit nodeType thunkId;
@@ -1004,7 +1053,10 @@ rec {
             let r = (a.run (EvalState {scope = s;})).right;
             in expect.noLambdasEq
               (r // { s = EvalState { scope = r.s.scope; };})  # Ignore the thunk cache
-              { s = EvalState {scope = s';}; a = a'; };
+              { 
+                s = EvalState {scope = s';};
+                a = a';
+              };
           expectRunError = s: a: e: 
             expect.noLambdasEq
               (a.run (EvalState {scope = s;})).left
@@ -1107,7 +1159,7 @@ rec {
               helpers = {
                 _00_get = 
                   let m = Eval.do
-                    (getScope);
+                    (getPublicScope);
                   in expectRun {} m {} {};
 
                 _01_set = 
@@ -1124,32 +1176,32 @@ rec {
                   let m = Eval.do
                     (setScope {x = 1;})
                     (modifyScope (scope: scope // {x = scope.x + 2; y = 2;}))
-                    (getScope);
+                    (getPublicScope);
                   in expectRun {} m {x = 3; y = 2;} {x = 3; y = 2;};
 
                 _04_setModGetBlocks = 
                   let sets = {_, ...}: _.setScope {x = 1;};
                       mods = {_, ...}: _.modifyScope (scope: scope // {x = scope.x + 2; y = 2;});
-                      gets = {_, ...}: _.getScope;
+                      gets = {_, ...}: _.getPublicScope;
                       m = Eval.do sets mods gets;
                   in expectRun {} m {x = 3; y = 2;} {x = 3; y = 2;};
 
                 _05_setModGetBlocksDo = 
                   let sets = Eval.do ({_, ...}: _.setScope {x = 1;});
                       mods = Eval.do ({_, ...}: _.modifyScope (scope: scope // {x = scope.x + 2; y = 2;}));
-                      gets = Eval.do ({_, ...}: _.getScope);
+                      gets = Eval.do ({_, ...}: _.getPublicScope);
                       m = Eval.do sets mods gets;
                   in expectRun {} m {x = 3; y = 2;} {x = 3; y = 2;};
 
                 _06_useScope = 
                   let 
                     getClear = Eval.do
-                      {scope = getScope;}
+                      {scope = getPublicScope;}
                       (setScope {cleared = true;})
                       ({_, scope}: _.pure scope);
 
                     xInc4 = Eval.do
-                      {scope = getScope;}
+                      {scope = getPublicScope;}
                       ({_, scope}: _.modify (s: s.fmap (scope': scope' // {x = scope.x + 1;})))
                       (modifyScope (scope: scope // {x = scope.x + 3;}));
 
@@ -1193,7 +1245,7 @@ rec {
                   (set (EvalState {scope = {x = 1;};}))
                   (modify (s: s.fmap (scope: scope // {y = 2;})))
                   {state = get;}
-                  ({_, state}: _.pure state.scope);
+                  ({_, state}: _.pure state.publicScope);
                 in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
               overwriteScopeAppend =
@@ -1201,7 +1253,7 @@ rec {
                   (set (EvalState {scope = {x = 1;};}))
                   (modify (s: s.fmap (scope: scope // {x = 2;})))
                   {state = get;}
-                  ({_, state}: _.pure state.scope);
+                  ({_, state}: _.pure state.publicScope);
                 in expectRun {} m {x = 2;} {x = 2;};
 
               overwriteScopePrepend =
@@ -1209,7 +1261,7 @@ rec {
                   (set (EvalState {scope = {x = 1;};}))
                   (modify (s: s.fmap (scope: {x = 2;} // scope)))
                   {state = get;}
-                  ({_, state}: _.pure state.scope);
+                  ({_, state}: _.pure state.publicScope);
                 in expectRun {} m {x = 1;} {x = 1;};
               
               saveScopeAppendScope =
@@ -1217,7 +1269,7 @@ rec {
                   (setScope {x = 1;})
                   (saveScope ({_}: _.do
                     (appendScope {y = 2;})
-                    getScope
+                    getPublicScope
                   ));
                 in expectRun {} m {x = 1;} {x = 1; y = 2;};
 
@@ -1228,10 +1280,36 @@ rec {
                     (appendScope {y = 2;})
                     (saveScope ({_}: _.do
                       (appendScope {z = 3;})
-                      getScope
+                      getPublicScope
                     ))
                   ));
                 in expectRun {} m {x = 1;} {x = 1; y = 2; z = 3;};
+
+              withScope = {
+                _00_empty = 
+                  expectRun {} 
+                  (Eval.do (setWithScope {})) {} unit;
+                _01_set = 
+                  expectRun {}
+                  (Eval.do (setWithScope {x = 1;})) 
+                  {__internal__.withScope.x = 1;} unit;
+                _02_append = 
+                  expectRun {}
+                  (Eval.do (appendWithScope {x = 1;})) 
+                  {__internal__.withScope.x = 1;} unit;
+                _03_overwrite = 
+                  expectRun {}
+                  (Eval.do (setWithScope {x = 2;}) (appendWithScope {x = 3;}))
+                  {__internal__.withScope.x = 3;} unit;
+                _04_appendAppend = 
+                  expectRun {} 
+                  (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;})) 
+                  {__internal__.withScope = {x = 1; y = 2;};} unit;
+                _05_appendAppendAppend = 
+                  expectRun {} 
+                  (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;}) (appendWithScope {z = 3;})) 
+                  {__internal__.withScope = {x = 1; y = 2; z = 3;};} unit;
+              };
 
               differentBlocks = {
 
@@ -1266,7 +1344,7 @@ rec {
                         (set (EvalState {scope = {x = 1;};}))
                         (modify (s: s.fmap (scope: scope // {y = 2;})))
                         {state = get;}
-                        ({_, state}: _.pure state.scope);
+                        ({_, state}: _.pure state.publicScope);
                     m = Eval.do a;
                   in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
@@ -1373,8 +1451,8 @@ rec {
                   Eval.do
                     (set (EvalState {scope = {test = "value";};}))
                     {stateAfterSet = get;}
-                    ({_, stateAfterSet}: _.pure stateAfterSet.scope)
-                ) { test = "value"; } { test = "value"; };
+                    ({_, stateAfterSet}: _.pure stateAfterSet.publicScope)
+                ) { test = "value"; } (EvalState { test = "value"; });
                 
                 # Test that traverse properly threads state with foldM implementation
                 traverseWithState = expectRun {}

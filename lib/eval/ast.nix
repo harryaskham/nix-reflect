@@ -6,8 +6,8 @@ let
   inherit (eval.monad) Thunk isThunk Eval;  # Explicit inclusion to avoid shadow fail against typed.functions.Thunk
   inherit (Eval) do;
 in 
-with eval.monad;
 with collective-lib.typed;
+with eval.monad;
 rec {
   # Module callable as eval.ast
   __functor = self: self.evalAST;
@@ -46,7 +46,7 @@ rec {
         Evaluating parsed AST node:
         ${printBoxed parsed}
       ''))
-      ({_}: _.set initEvalState)
+      (set initEvalState)
       {result = 
         if strict then deeplyEvalNodeM parsed
         else forceEvalNodeM parsed;}
@@ -185,12 +185,16 @@ rec {
     _.do
       (while "evaluating 'identifier' node")
       {scope = getScope;}
-      ({_, scope}: _.do
-        (guard (hasAttr node.name scope) (UnknownIdentifierError ''
+      {withScope = getWithScope;}
+      (traceWithScope)
+      ({_, scope, withScope}: _.do
+        (guard (hasAttr node.name scope || hasAttr node.name withScope) (UnknownIdentifierError ''
           Undefined identifier '${node.name}' in current scope:
           ${_pd_ 1 scope}
         ''))
-        (evalScopeValue node.name scope.${node.name}));
+        (if scope ? ${node.name}
+         then evalScopeValue appendScope node.name scope.${node.name}
+         else evalScopeValue appendWithScope node.name withScope.${node.name}));
 
   # Evaluate a value retrieved from the scope.
   # Handles:
@@ -198,7 +202,7 @@ rec {
   # - Thunk Nodes: stored by any non-strict recursive context i.e. let bindings, rec-attrs (temporarily), with blocks
   # - Monadic values: any monadic action, bound to current scope
   # - Standard Nix values
-  evalScopeValue = name: value: {_, ...}:
+  evalScopeValue = appendScopeF: name: value: {_, ...}:
     _.do
       (while "evaluating value from scope")
       ({_}: 
@@ -208,7 +212,7 @@ rec {
           # TODO: Cleaner with a separate thunk store
           {forced = force value;}
           ({_, forced}: _.do
-            (appendScope { ${name} = forced; })
+            (appendScopeF { ${name} = forced; })
             (pure forced))
 
         else if isAST value then _.do
@@ -216,7 +220,7 @@ rec {
           # Evaluate once to WHNF, capturing the state but not deeply evaluating
           {evaluated = evalNodeM value;}
           ({_, evaluated}: _.do
-            (appendScope { ${name} = evaluated; })
+            (appendScopeF { ${name} = evaluated; })
             (pure evaluated))
 
           # Any monadic state should be bound to
@@ -845,7 +849,7 @@ rec {
         # that are not in the scope.
         # e.g. with []; 1 == 1, let a = 1; in with []; a == 1
         # TODO: However `with {a=1;}; with []; a` is an error?
-        (when (lib.isAttrs env) (prependScope env))
+        (when (lib.isAttrs env) (appendWithScope env))
         (forceEvalNodeM node.body)));
 
   # Evaluate an assert expression
@@ -1668,6 +1672,7 @@ rec {
           nestedClosure = testRoundTrip "let x = 1; in (let y = 2; f = z: x + y + z; in f 3)" 6;
           shadowParameter = testRoundTrip "let x = 1; f = x: x + 1; in f 5" 6;
           recursiveReference = testRoundTrip "let f = x: if x == 0 then 1 else x * f (x - 1); in f 3" 6;
+          argsOverWiths = testRoundTrip "(arg: with { arg = 1; }; arg) 2" 2;
         };
         
         partialApplication = {
