@@ -16,7 +16,7 @@ function maybe-bootstrap-cursor-agent() {
 function color() {
   IFS=''
   while read -r line ; do
-    unbuffer printf "$line\n"
+    printf "$line\n" 1>&2
   done
 }
 

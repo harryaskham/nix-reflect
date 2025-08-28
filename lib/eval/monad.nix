@@ -198,15 +198,16 @@ rec {
       __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
 
       # Run the thunk fully and return the full monadic output {s, a}
-      runWithCacheM = thunkCache: {_, ...}: 
-        (_self_.do
-          (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
+      runWithCacheM = thunkCache: {_, ...}: _.do
+        (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
+        {scope = getScope;}
+        {initScope = getInitScope;}
+        ({scope, initScope, _}: _.saveScope (_self_.do
           (setThunkCache thunkCache)
           (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
-          (eval.ast.evalNodeM node)).case {
-            Left = liftEither;
-            Right = pure;
-          };
+          {a = eval.ast.evalNodeM node;}
+          {s = get;}
+          ({a, s, _}: _.pure {inherit a s;})));
     });
 
   Thunk = node:
