@@ -203,6 +203,7 @@ rec {
         {scope = getScope;}
         {initScope = getInitScope;}
         ({scope, initScope, _}: _.saveScope (_self_.do
+          (setScope initScope)
           (setThunkCache thunkCache)
           (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
           {a = eval.ast.evalNodeM node;}
