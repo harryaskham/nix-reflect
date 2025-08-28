@@ -1030,15 +1030,15 @@ rec {
 
   ignoreThunkCache = r: r // {s = EvalState { scope = r.s.scope; }; };
 
-  expectRun = s: a: s': a': 
-    expectRunV2 {
+  expectRunLegacy = s: a: s': a': 
+    expectRun {
       actual = a;
       expected = a';
       initialScope = s;
       expectedScope = s';
     };
 
-  expectRunV2 = {
+  expectRun = {
     actual, 
     expected,
     initialScope ? {},
@@ -1147,15 +1147,15 @@ rec {
           };
 
           _00_chain = {
-            _00_pure = expectRun {} a._42 {} (Int 42);
-            _01_set = expectRun {} a.stateXIs2 { x = 2; } unit;
-            _02_modify = expectRun {} a.stateXTimes3 { x = 6; } unit;
-            _04_bind.get = expectRun {} a.getStatePlusValue { x = 6; } (Int 48);
+            _00_pure = expectRunLegacy {} a._42 {} (Int 42);
+            _01_set = expectRunLegacy {} a.stateXIs2 { x = 2; } unit;
+            _02_modify = expectRunLegacy {} a.stateXTimes3 { x = 6; } unit;
+            _04_bind.get = expectRunLegacy {} a.getStatePlusValue { x = 6; } (Int 48);
             _05_bind.thenThrows = expectRunError {} a.thenThrows (Throw "test error");
             _06_bind.bindAfterThrow = expectRunError {} a.bindAfterThrow (Throw "test error");
-            _07_catch.noError = expectRun {} (a._42.catch (_: throw "no")) {} (Int 42);
-            _08_catch.withError = expectRun {} a.catchAfterThrow { x = 6; } "handled error 'EvalError.Throw:\n  test error'";
-            _09_catch.thenFmap = expectRun {} a.fmapAfterCatch { x = 6; } "handled error 'EvalError.Throw:\n  test error' then ...";
+            _07_catch.noError = expectRunLegacy {} (a._42.catch (_: throw "no")) {} (Int 42);
+            _08_catch.withError = expectRunLegacy {} a.catchAfterThrow { x = 6; } "handled error 'EvalError.Throw:\n  test error'";
+            _09_catch.thenFmap = expectRunLegacy {} a.fmapAfterCatch { x = 6; } "handled error 'EvalError.Throw:\n  test error' then ...";
           };
           
           _01_signatures = {
@@ -1186,28 +1186,28 @@ rec {
 
           _03_doNotation = {
             _00_basic = {
-              const = expectRun {} (Eval.do (Eval.pure 123)) {} 123;
+              const = expectRunLegacy {} (Eval.do (Eval.pure 123)) {} 123;
 
-              constBound = expectRun {} (Eval.do ({_}: _.pure 123)) {} 123;
+              constBound = expectRunLegacy {} (Eval.do ({_}: _.pure 123)) {} 123;
 
               bindOne =
                 let m = Eval.do {x = Eval.pure 1;} ({_, ...}: _.pure unit);
-                in expectRun {} m {} unit;
+                in expectRunLegacy {} m {} unit;
 
               bindOneBound =
                 let m = Eval.do {x = {_}: _.pure 1;} ({_}: _.pure unit);
-                in expectRun {} m {} unit;
+                in expectRunLegacy {} m {} unit;
 
               bindOneGetOne =
                 let m = Eval.do {x = Eval.pure 1;} ({_, x}: _.pure x);
-                in expectRun {} m {} 1;
+                in expectRunLegacy {} m {} 1;
 
               dependentBindGet = 
                 let m = Eval.do
                   {x = {_}: _.pure 1;}
                   {y = {_, x}: _.pure (x + 1);}
                   ({_, x, y}: _.pure (x + y));
-                in expectRun {} m {} 3;
+                in expectRunLegacy {} m {} 3;
 
               boundDo = 
                 let do = Eval.do; in with Eval;
@@ -1215,13 +1215,13 @@ rec {
                   {x = Eval.pure 1;}
                   {y = Eval.pure 2;}
                   ({x, y, ...}: Eval.pure (x + y));
-                in expectRun {} m {} 3;
+                in expectRunLegacy {} m {} 3;
 
               guard.pass =
                 let m = Eval.do
                   ( {_}: _.guard true (TypeError "fail"))
                   ( {_}: _.pure unit );
-                in expectRun {} m {} unit;
+                in expectRunLegacy {} m {} unit;
 
               guard.fail =
                 let m = Eval.do
@@ -1235,38 +1235,38 @@ rec {
                 _00_get = 
                   let m = Eval.do
                     (getPublicScope);
-                  in expectRun {} m {} {};
+                  in expectRunLegacy {} m {} {};
 
                 _01_set = 
                   let m = Eval.do (setScope {x = 1;});
-                  in expectRun {} m {x = 1;} unit;
+                  in expectRunLegacy {} m {x = 1;} unit;
 
                 _02_setSet = 
                   let m = Eval.do
                     (setScope {x = 1;})
                     (setScope {y = 2;});
-                  in expectRun {} m {y = 2;} unit;
+                  in expectRunLegacy {} m {y = 2;} unit;
 
                 _03_setModGet = 
                   let m = Eval.do
                     (setScope {x = 1;})
                     (modifyScope (scope: scope // {x = scope.x + 2; y = 2;}))
                     (getPublicScope);
-                  in expectRun {} m {x = 3; y = 2;} {x = 3; y = 2;};
+                  in expectRunLegacy {} m {x = 3; y = 2;} {x = 3; y = 2;};
 
                 _04_setModGetBlocks = 
                   let sets = {_, ...}: _.setScope {x = 1;};
                       mods = {_, ...}: _.modifyScope (scope: scope // {x = scope.x + 2; y = 2;});
                       gets = {_, ...}: _.getPublicScope;
                       m = Eval.do sets mods gets;
-                  in expectRun {} m {x = 3; y = 2;} {x = 3; y = 2;};
+                  in expectRunLegacy {} m {x = 3; y = 2;} {x = 3; y = 2;};
 
                 _05_setModGetBlocksDo = 
                   let sets = Eval.do ({_, ...}: _.setScope {x = 1;});
                       mods = Eval.do ({_, ...}: _.modifyScope (scope: scope // {x = scope.x + 2; y = 2;}));
                       gets = Eval.do ({_, ...}: _.getPublicScope);
                       m = Eval.do sets mods gets;
-                  in expectRun {} m {x = 3; y = 2;} {x = 3; y = 2;};
+                  in expectRunLegacy {} m {x = 3; y = 2;} {x = 3; y = 2;};
 
                 _06_useScope = 
                   let 
@@ -1286,7 +1286,7 @@ rec {
                       xInc4
                       getClear;
 
-                  in expectRun {} m {cleared = true;} {x = 9;};
+                  in expectRunLegacy {} m {cleared = true;} {x = 9;};
               };
 
               _01_blocks = {
@@ -1294,27 +1294,27 @@ rec {
                   let m = Eval.do
                     (set (EvalState {scope = {x = 1;};}))
                     get;
-                  in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                  in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
                 chainBlocks =
                   let a = Eval.do (set (EvalState {scope = {x = 1;};}));
                       b = Eval.do a get;
                       m = Eval.do b;
-                  in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                  in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
                 withoutDo =
                   let a = set (EvalState {scope = {x = 1;};});
                       b = modify (s: s.fmap (scope: {x = scope.x + 1;}));
                       c = {_}: (_.bind _.get).bind ({_, _a}: _.pure _a.scope.x);
                       m = (((Eval.pure unit).bind a).bind b).bind c;
-                  in expectRun {} m {x = 2;} 2;
+                  in expectRunLegacy {} m {x = 2;} 2;
 
                 getScope =
                   let m = Eval.do
                     (set (EvalState {scope = {x = 1;};}))
                     {state = get;}
                     ({_, state}: _.pure state.scope);
-                  in expectRun {} m {x = 1;} {x = 1; __internal__.withScope = {};};
+                  in expectRunLegacy {} m {x = 1;} {x = 1; __internal__.withScope = {};};
 
                 appendScope =
                   let m = Eval.do
@@ -1322,7 +1322,7 @@ rec {
                     (modify (s: s.fmap (scope: scope // {y = 2;})))
                     {state = get;}
                     ({_, state}: _.pure state.publicScope);
-                  in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                  in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
                 overwriteScopeAppend =
                   let m = Eval.do
@@ -1330,7 +1330,7 @@ rec {
                     (modify (s: s.fmap (scope: scope // {x = 2;})))
                     {state = get;}
                     ({_, state}: _.pure state.publicScope);
-                  in expectRun {} m {x = 2;} {x = 2;};
+                  in expectRunLegacy {} m {x = 2;} {x = 2;};
 
                 overwriteScopePrepend =
                   let m = Eval.do
@@ -1338,7 +1338,7 @@ rec {
                     (modify (s: s.fmap (scope: {x = 2;} // scope)))
                     {state = get;}
                     ({_, state}: _.pure state.publicScope);
-                  in expectRun {} m {x = 1;} {x = 1;};
+                  in expectRunLegacy {} m {x = 1;} {x = 1;};
                 
                 saveScopeAppendScope =
                   let m = Eval.do
@@ -1347,7 +1347,7 @@ rec {
                       (appendScope {y = 2;})
                       getPublicScope
                     ));
-                  in expectRun {} m {x = 1;} {x = 1; y = 2;};
+                  in expectRunLegacy {} m {x = 1;} {x = 1; y = 2;};
 
                 nestedSaveScope =
                   let m = Eval.do
@@ -1359,30 +1359,30 @@ rec {
                         getPublicScope
                       ))
                     ));
-                  in expectRun {} m {x = 1;} {x = 1; y = 2; z = 3;};
+                  in expectRunLegacy {} m {x = 1;} {x = 1; y = 2; z = 3;};
 
                 withScope = {
                   _00_empty = 
-                    expectRun {} 
+                    expectRunLegacy {} 
                     (Eval.do (setWithScope {})) {} unit;
                   _01_set = 
-                    expectRun {}
+                    expectRunLegacy {}
                     (Eval.do (setWithScope {x = 1;})) 
                     {__internal__.withScope.x = 1;} unit;
                   _02_append = 
-                    expectRun {}
+                    expectRunLegacy {}
                     (Eval.do (appendWithScope {x = 1;})) 
                     {__internal__.withScope.x = 1;} unit;
                   _03_overwrite = 
-                    expectRun {}
+                    expectRunLegacy {}
                     (Eval.do (setWithScope {x = 2;}) (appendWithScope {x = 3;}))
                     {__internal__.withScope.x = 3;} unit;
                   _04_appendAppend = 
-                    expectRun {} 
+                    expectRunLegacy {} 
                     (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;})) 
                     {__internal__.withScope = {x = 1; y = 2;};} unit;
                   _05_appendAppendAppend = 
-                    expectRun {} 
+                    expectRunLegacy {} 
                     (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;}) (appendWithScope {z = 3;})) 
                     {__internal__.withScope = {x = 1; y = 2; z = 3;};} unit;
                 };
@@ -1393,25 +1393,25 @@ rec {
                     let a = set (EvalState {scope = {x = 1;};});
                         b = get;
                         m = Eval.do a b;
-                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
                   differentBlocksBind =
                     let a = set (EvalState {scope = {x = 1;};});
                         b = get;
                         m = ((Eval.pure unit).bind a).bind b;
-                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
                   differentDoBlocks =
                     let a = {_}: _.do (set (EvalState {scope = {x = 1;};}));
                         b = {_}: _.do get;
                         m = Eval.do a b;
-                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
                   differentEvalDoBlocks =
                     let a = Eval.do (set (EvalState {scope = {x = 1;};}));
                         b = Eval.do get;
                         m = Eval.do a b;
-                    in expectRun {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
 
                   appendScopeDifferentEvalBlock =
                     let 
@@ -1422,7 +1422,7 @@ rec {
                           {state = get;}
                           ({_, state}: _.pure state.publicScope);
                       m = Eval.do a;
-                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
                   appendScopeDifferentEvalBlocks =
                     let 
@@ -1438,7 +1438,7 @@ rec {
                           {state = get;}
                           ({_, state}: _.pure state.publicScope);
                       m = Eval.do a b;
-                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
                   appendScopeDifferentBlock =
                     let 
@@ -1449,7 +1449,7 @@ rec {
                           {state = get; }
                           ({_, state}: _.pure state.publicScope);
                       m = Eval.do a;
-                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
                   appendScopeDifferentBlocks =
                     let 
@@ -1459,7 +1459,7 @@ rec {
                         {state = get;}
                         ({_, state}: _.pure state.publicScope);
                       m = Eval.do a b c;
-                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
 
                   appendScopeDifferentBlocksBindNoDo =
                     let 
@@ -1467,7 +1467,7 @@ rec {
                       b = modify (s: s.fmap (scope: scope // {y = 2;}));
                       c = {_}: (_.bind _.get).bind ({_, _a, ...}: _.pure _a.publicScope);
                       m = (((Eval.pure unit).bind a).bind b).bind c;
-                    in expectRun {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
                 };
               };
 
@@ -1499,32 +1499,32 @@ rec {
                 let a = Eval.do (modify (s: s.fmap (scope: scope // {x = 1;})));
                     b = Eval.do (modify (s: s.fmap (scope: scope // {y = 2;})));
                 in {
-                  scopeExists = expectRun {} a {x = 1;} unit;
+                  scopeExists = expectRunLegacy {} a {x = 1;} unit;
 
                   doBind =
                     let c = (a.bind ({_}: b.bind ({_}: _.pure unit))).bind ({_}: _.bind _.get);
-                    in expectRun {} c {x = 1; y = 2;} (EvalState { scope = {x = 1; y = 2;};});
+                    in expectRunLegacy {} c {x = 1; y = 2;} (EvalState { scope = {x = 1; y = 2;};});
 
                   doSq =
                     let c = (a.sq b).bind ({_}: _.bind _.get);
-                    in expectRun {} c {x = 1; y = 2;} (EvalState {scope = {x = 1; y = 2;};});
+                    in expectRunLegacy {} c {x = 1; y = 2;} (EvalState {scope = {x = 1; y = 2;};});
                 };
             };
 
             _02_functions = {
               _00_foldM = {
-                empty = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [])) {} 0;
-                single = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [5])) {} 5;
-                multiple = expectRun {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])) {} 6;
+                empty = expectRunLegacy {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [])) {} 0;
+                single = expectRunLegacy {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [5])) {} 5;
+                multiple = expectRunLegacy {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])) {} 6;
               };
 
               _01_traverse = {
-                _00_empty = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
-                _01_single = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
-                _02_multiple = expectRun {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
+                _00_empty = expectRunLegacy {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
+                _01_single = expectRunLegacy {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
+                _02_multiple = expectRunLegacy {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
                 
                 # Simple test showing get() works correctly in do-block  
-                _03_simpleGetIssue = expectRun {} (
+                _03_simpleGetIssue = expectRunLegacy {} (
                   Eval.do
                     (set (EvalState {scope = {test = "value";};}))
                     {stateAfterSet = get;}
@@ -1532,7 +1532,7 @@ rec {
                 ) { test = "value"; } { test = "value"; };
                 
                 # Test that traverse properly threads state with foldM implementation
-                _04_traverseWithState = expectRun {}
+                _04_traverseWithState = expectRunLegacy {}
                   (Eval.do
                     (set (EvalState {scope = {counter = 0; seen = [];};}))
                     {result = {_, ...}: _.traverse (x: 
@@ -1558,7 +1558,7 @@ rec {
 
             _03_thunkCache = with parser; {
               _00_getEmpty =
-                expectRunV2 {
+                expectRun {
                   actual =
                     Eval.do
                       getThunkCache;
@@ -1566,7 +1566,7 @@ rec {
                 };
 
               _01_put = 
-                expectRunV2 {
+                expectRun {
                   actual =
                     Eval.do
                       (Thunk (N.string "x"));
@@ -1578,7 +1578,7 @@ rec {
                 };
 
               _03_putGetMany = 
-                expectRunV2 {
+                expectRun {
                   actual =
                     Eval.do
                     {x = Thunk (N.string "x");}
@@ -1615,7 +1615,7 @@ rec {
           };
 
           _05_runM = {
-            _00_simple = expectRun {}
+            _00_simple = expectRunLegacy {}
               (Eval.do
                 (runM (Eval.do (pure 1))))
               {} 1;
@@ -1628,7 +1628,7 @@ rec {
                 SyntaxError;
 
             _02_scopeDoesntLeakIntoRunM =
-              expectRunV2 {
+              expectRun {
                 actual = 
                   Eval.do
                     (setScope {a = 1;})

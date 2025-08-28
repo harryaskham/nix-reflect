@@ -2342,13 +2342,13 @@ rec {
               getX = xs: {_}: _.do
                 {xs' = force xs;}
                 ({xs', _}: _.pure xs'.x);
-          in expectRunWithThunkCache
-            (Eval.do
-              {xs = evalNodeM xsNode;}
-              ({xs, _}: _.traverse getX [xs xs xs]))
-            {}
-            {}
-            (ThunkCache {
+          in expectRun {
+            actual =
+              Eval.do
+                {xs = evalNodeM xsNode;}
+                ({xs, _}: _.traverse getX [xs xs xs]);
+            expected = [1 1 1];
+            expectedThunkCache = ThunkCache {
               thunks = {
                 "0" = CODE 0 "attrs";
                 "1" = CODE 1 "int";
@@ -2360,8 +2360,8 @@ rec {
               misses = 2;
               hits = 4;
               nextId = 2;
-            })
-            [1 1 1];
+            };
+          };
       };
 
       _21_scopeLeak = {
