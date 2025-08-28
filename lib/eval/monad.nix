@@ -1628,13 +1628,16 @@ rec {
                 SyntaxError;
 
             _02_scopeDoesntLeakIntoRunM =
-              expectRun {}
-                (Eval.do
-                  (setScope {a = 1;})
-                  (runM (Eval.do 
-                    {scope = {_}: _.getScope;}
-                    ({scope, _}: _.pure (scope.a or null)))))
-                {a = 1;} null;
+              expectRunV2 {
+                actual = 
+                  Eval.do
+                    (setScope {a = 1;})
+                    (runM (Eval.do 
+                      {scope = {_}: _.getScope;}
+                      ({scope, _}: _.pure (scope.a or null))));
+                expected = null;
+                expectedScope = {a = 1;};
+              };
           };
 
         };
