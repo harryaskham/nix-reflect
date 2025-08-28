@@ -64,30 +64,6 @@ rec {
     else "Value"
     );
 
-  # Convert to Nix value lazily such that evaluator thunks turn into lazily evaluated
-  # attributes / list elements that each run their respective closures.
-  # This is "strict" from the perspective of our evaluator but lazy when these values are accessed from Nix.
-  #toNix = x:
-  #  let signature = toNixSignature x;
-  #  in log.while ("Converting to Nix value: ${signature}") (
-  #  switch signature {
-  #    EvalError = x;
-  #    Eval = toNix (x.runClosure {});
-  #    AST = toNix (Eval.do (forceEvalNodeM x));
-  #    Thunk = toNix (Eval.do (force x));
-  #    EvaluatedLambda = x.asLambda;
-  #    Functor = x // { __functor = self: arg: (toNix x.__functor) self arg; };
-  #    Function = arg: toNix (x arg);
-  #    List = map toNix x;
-  #    Attrs = mapAttrs (_: toNix) x;
-  #    Value = x;
-  #  }
-  #  );
-
-  toNixMM = x_: {_}: _.do
-    {x = x_;}
-    ({x, _}: _.do (toNixM x));
-
   toNixM = x: {_}:
     let signature = toNixSignature x;
     in _.do
@@ -99,7 +75,7 @@ rec {
           {value = evalNodeM x;}
           ({value, _}: _.do (toNixM value));
         Thunk = _.bind (force x);
-        EvaluatedLambda = toNixMM (_.bind x.asLambdaM);
+        EvaluatedLambda = _.bind x.asLambdaM;
         Functor = _.do
           {f = toNixM x.__functor;}
           ({f, _}: _.pure (x // { __functor = self: arg: f self arg; }));
@@ -859,20 +835,21 @@ rec {
           (while "converting EvaluatedLambda to lambda")
           ({_}: _.pure
             (arg:
-              let r = (_.do (self.applyM arg)).runClosure {};
+              let r = 
+                (_.do (self.applyM arg)
+                ).runClosure {};
               in if isEvalError r then throw (_p_ r)
               else r));
 
         # Apply the lambda monadically, updating and accessing the thunk cache.
         applyM = arg: {_}:
           _.do
-            (while "applying EvaluatedLambda to body thunk in a saved scope")
+            (while "applying EvaluatedLambda to body thunk in a runM")
             # Run the lambda body inside the self._; old state, new cache
             # and save the new lambda cache state with the body thunk.
-            ((_self_.do
+            (runM (_self_.do
               (evalLambdaParams argSpec param arg)
-              (evalNodeM body)
-            ).runM);
+              (evalNodeM body)));
       })));
 
   # Evaluate a lambda expression
