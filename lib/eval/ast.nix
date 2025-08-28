@@ -732,7 +732,9 @@ rec {
          then evalNodeM node."then"
          else evalNodeM node."else"));
 
-  paramName = param: param.name.name;
+  # Get the name of a parameter from its AST node.
+  # param.name is an identifier.
+  getParamName = param: param.name.name;
 
   # Return any extra scope bound by passing in the arg to the param.
   # evalLambdaParams :: {argName = {default = AST | null;}} -> AST -> Thunk -> Eval Scope
@@ -743,7 +745,7 @@ rec {
       ({_, arg}:
         switch param.nodeType {
         # Simple param is just a name, so just bind it to the arg.
-        simpleParam = _.appendScope { ${paramName param} = arg; };
+        simpleParam = _.appendScope { ${getParamName param} = arg; };
 
         # Attrset param is a set of names, so bind each to the arg, with defaults handled.
         attrSetParam = 
@@ -791,14 +793,14 @@ rec {
     attrSetParam = _.do
       {requiredParams =
         pure (for (requiredParamAttrs param) (p: {
-          ${p.paramName} = { default = null; };
+          ${getParamName p} = { default = null; };
         }));}
       {defaultParams =
         traverse
           (p: {_}: _.do
             {default = Thunk p.default;}
             ({default, _}: _.pure {
-              ${p.paramName} = { inherit default; };
+              ${getParamName p} = { inherit default; };
             }))
           (defaultParamAttrs param);}
       ({requiredParams, defaultParams, _}: _.pure (mergeAttrsList (requiredParams ++ defaultParams)));

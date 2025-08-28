@@ -210,10 +210,10 @@ rec {
       # a runClosure/runM action.
       __force = {_, ...}: _.do
         (while "forcing ${self} in __force")
-        (_self_.do
+        (runM (_self_.do
           (while "forcing '${self.nodeType}' thunk")
           (eval.ast.evalNodeM node)
-        );
+        ));
     });
 
   Thunk = node:
