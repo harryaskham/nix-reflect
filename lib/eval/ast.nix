@@ -24,7 +24,7 @@ rec {
     (do
       (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
       (evalM strict expr))
-    .run initState;
+    .run (EvalState.mempty {});
 
   /*
   evalAST :: (string | AST) -> Either EvalError a */
@@ -34,7 +34,7 @@ rec {
     (do
       (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
       (evalM strict expr))
-    .run_ initState;
+    .run_ (EvalState.mempty {});
 
   /*
   evalM :: (string | AST) -> bool -> Eval a */
@@ -252,15 +252,14 @@ rec {
     _.do
       (while "evaluating 'identifier' node")
       {scope = getScope;}
-      {withScope = getWithScope;}
-      ({_, scope, withScope}: _.do
-        (guard (hasAttr node.name scope || hasAttr node.name withScope) (UnknownIdentifierError ''
+      ({_, scope}: _.do
+        (guard (hasAttr node.name scope || hasAttr node.name scope.__internal__.withScope) (UnknownIdentifierError ''
           Undefined identifier '${node.name}' in current scope:
           ${_pd_ 1 scope}
         ''))
         (if scope ? ${node.name}
          then evalScopeValue appendScope node.name scope.${node.name}
-         else evalScopeValue appendWithScope node.name withScope.${node.name}));
+         else evalScopeValue appendWithScope node.name scope.__internal__.withScope.${node.name}));
 
   # Evaluate a value retrieved from the scope.
   # Handles:
@@ -1104,7 +1103,7 @@ rec {
         _23_lambdaRecDefaults = testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
-      _00_smoke._01_lazy = {
+      _00_smoke._01_lazy = solo {
         _00_int = testRoundTripLazy "1" 1;
          _01_float = testRoundTripLazy "1.0" 1.0;
          _02_string = testRoundTripLazy ''"hello"'' "hello";

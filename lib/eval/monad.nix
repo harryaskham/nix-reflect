@@ -200,10 +200,8 @@ rec {
       # Run the thunk fully and return the full monadic output {s, a}
       runWithCacheM = thunkCache: {_, ...}: _.do
         (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
-        {scope = getScope;}
-        {initScope = getInitScope;}
-        ({scope, initScope, _}: _.saveScope (_self_.do
-          (setScope initScope)
+        (saveScope ({_}: _.do
+          (resetScope)
           (setThunkCache thunkCache)
           (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
           {a = eval.ast.evalNodeM node;}
@@ -343,7 +341,7 @@ rec {
     }));
   };
 
-  resetScope = scope: {_}: _.do
+  resetScope = {_}: _.do
     {scope = getScope;}
     ({scope, _}: _.bind scope.__internal__.resetScopeM);
 
@@ -361,7 +359,7 @@ rec {
         initScopeM = {_}: _.pure self;
         resetScopeM = {_}: _.do
           (while "resetting scope")
-          (bind (setScope self));
+          (setScope self);
       };
     });
 
@@ -660,7 +658,7 @@ rec {
       bind = statement:
         log.while ("binding a do-statement:\n${printStatement M statement}") (
         M.do
-          ({_}: _.bind (this.action.bind statement))
+          (this.action.bind statement)
         );
 
       sq = b: this.bind (_: b);
