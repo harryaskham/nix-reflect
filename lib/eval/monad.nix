@@ -1095,7 +1095,7 @@ rec {
       if isErrorType expected then
         expect.eqOn (e: e.left.__errorName or {__notLeft = e;})
           r
-          {left = {__errorName = (E "").__errorName;};}
+          {left = {__errorName = (expected "").__errorName;};}
 
       else 
         expect.eqOn
@@ -1669,7 +1669,7 @@ rec {
                   actual =
                     Eval.do
                       {x = Thunk (N.string "x");}
-                      ({x, _}: force x);
+                      ({x, _}: _.bind (force x));
                   expected = "x";
                   expectedThunkCache = ThunkCache {
                     thunks = { "0" = CODE 0 "string"; };
@@ -1765,34 +1765,6 @@ rec {
               expectRun {
                 actual = ((Eval.do ({a, _}: _.pure a)).catch (_e: pure "got ${_e}"));
                 expected = SyntaxError;
-              };
-          };
-
-          _05_runM = {
-            _00_simple = expectRun {
-              actual = (Eval.do
-                (runM (Eval.do (pure 1))));
-              expected = 1;
-            };
-
-            _01_bindingsDontLeakIntoRunM =
-              expectRun {
-                actual = (Eval.do
-                  {a = pure 1;}
-                  (runM (Eval.do ({a, _}: _.pure a))));
-                expected = SyntaxError;
-              };
-
-            _02_scopeDoesntLeakIntoRunM =
-              expectRun {
-                actual = 
-                  Eval.do
-                    (setPublicScope {a = 1;})
-                    (runM (Eval.do 
-                      {scope = {_}: _.getScope;}
-                      ({scope, _}: _.pure (scope.a or null))));
-                expected = null;
-                expectedScope = {a = 1;};
               };
           };
 

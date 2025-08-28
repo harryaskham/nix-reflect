@@ -844,7 +844,7 @@ rec {
         # Apply the lambda monadically, updating and accessing the thunk cache.
         applyM = arg: {_}:
           _.do
-            (while "applying EvaluatedLambda to body thunk in a runM")
+            (while "applying EvaluatedLambda to body thunk")
             # Run the lambda body inside the self._; old state, new cache
             # and save the new lambda cache state with the body thunk.
             (saveScope (_self_.do
