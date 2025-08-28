@@ -24,7 +24,7 @@ rec {
     (do
       (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
       (evalM strict expr))
-    .runEmpty {};
+    .run initState;
 
   /*
   evalAST :: (string | AST) -> Either EvalError a */
@@ -34,7 +34,7 @@ rec {
     (do
       (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
       (evalM strict expr))
-    .runEmpty_ {};
+    .run_ initState;
 
   /*
   evalM :: (string | AST) -> bool -> Eval a */
@@ -47,7 +47,6 @@ rec {
         ${""#printBoxed parsed
         }
       ''))
-      (set initEvalState)
       (if strict then toNixM parsed else toNixLazyM parsed);
 
   toNixSignature = x:

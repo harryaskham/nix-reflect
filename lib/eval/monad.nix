@@ -196,17 +196,18 @@ rec {
       # Run the thunk fully and return the full monadic output {s, a}
       runWithCacheM = thunkCache: {_, ...}: _.do
         (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
-        {result = 
-          pure (
-            (_self_.do
-              (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
-              (eval.ast.evalNodeM node)
-            ).runWith initScope thunkCache); }
-        ({result, _}: _.do
-          (result.case {
-            Left = liftEither;
-            Right = pure;
-          }));
+        {scope = getInitScope;}
+        ({scope, _}: _.do
+          {result = 
+            runWithM scope thunkCache
+              (_self_.do
+                (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
+                (eval.ast.evalNodeM node));}
+          ({result, _}: _.do
+            (result.case {
+              Left = liftEither;
+              Right = pure;
+            })));
     });
 
   Thunk = node:
@@ -314,12 +315,7 @@ rec {
     mempty = _: EvalState {};
 
     __functor = self: {scope ? {}, thunkCache ? ThunkCache {}}: (lib.fix (this: {
-      inherit thunkCache;
-      scope = scope // {
-        __internal__ = {
-          withScope = scope.__internal__.withScope or {};
-        };
-      };
+      inherit scope thunkCache;
       publicScope = removeAttrs scope ["__internal__"];
 
       __type = EvalState;
@@ -342,7 +338,29 @@ rec {
     }));
   };
 
-  initEvalState = EvalState { scope = initScope; };
+  resetScope = scope: {_}: _.do
+    {scope = getScope;}
+    ({scope, _}: _.bind scope.__internal__.resetScopeM);
+
+  getInitScope = {_}: _.do
+    {scope = getScope;}
+    ({scope, _}: _.bind (scope.__internal__.initScopeM));
+
+  mkInitEvalState = scope: EvalState { scope = mkInitScope scope; };
+
+  mkInitScope = scope: lib.fix (self: 
+    scope // {
+      __internal__ = {
+        withScope = {};
+        initScopeM = {_}: _.pure self;
+        resetScopeM = {_}: _.do
+          (while "resetting scope")
+          (bind (setScope self));
+      };
+    });
+
+  initState = mkInitEvalState initScope;
+
   initScope = lib.fix (self: {
     NIX_PATH = {
       nixpkgs = <nixpkgs>;
@@ -762,7 +780,10 @@ rec {
 
               get = this: {_, ...}: _.pure (this.s (S.mempty {}));
 
-              setState = this: s: set_s this s;
+              strictState = true;
+              setState = this: s:
+                let state = if this.strictState then const (s (S.mempty {})) else s;
+                in set_s this s;
               mapState = this: f: this.setState (f this.s);
 
               setEither = this: e: set_e this e;
@@ -1012,7 +1033,11 @@ rec {
       resultE = result.left or null;
     };
 
-  ignoreThunkCache = r: r // {s = EvalState { scope = r.s.scope; }; };
+  ignoreState = {thunkCache ? false, internal ? false}: r:
+    r // {s = EvalState { 
+      scope = if internal then removeAttrs r.s.scope ["__internal__"] else r.s.scope; 
+      thunkCache = if thunkCache then ThunkCache {} else r.s.thunkCache;
+    }; };
 
   expectRunLegacy = s: a: s': a': 
     expectRun {
@@ -1026,19 +1051,21 @@ rec {
     actual, 
     expected,
     initialScope ? {},
-    expectedScope ? initialScope,
+    expectedScope ? mkInitEvalState initialScope,
     expectedThunkCache ? null
   }:
     with tests;
     let 
-      maybeIgnoreThunkCache =
-        if expectedThunkCache == null then ignoreThunkCache else id;
+      maybeIgnore = ignoreState {
+        internal = true;
+        thunkCache = expectedThunkCache == null;
+      };
     in expect.eqOn
       (e: 
-        if e ? right then Compare.NoLambdas (maybeIgnoreThunkCache e.right)
+        if e ? right then Compare.NoLambdas (maybeIgnore e.right)
         else Compare.NoLambdas e)
-      (actual.run (EvalState {scope = initialScope;}))
-      (maybeIgnoreThunkCache { 
+      (actual.run (mkInitEvalState initialScope))
+      (maybeIgnore { 
         s = EvalState {scope = expectedScope; thunkCache = def {} expectedThunkCache;};
         a = expected;
       });
@@ -1046,19 +1073,19 @@ rec {
   expectRunError = s: a: e: 
     with tests;
     expect.noLambdasEq
-      ((a.run (EvalState {scope = s;})).left or {__notLeft = true;})
+      ((a.run (mkInitEvalState s)).left or {__notLeft = true;})
       e;
 
   expectRunErrorType = s: a: E: 
     with tests;
     expect.eqOn (e: e.left.__errorName or {__notLeft = e;})
-      (a.run (EvalState {scope = s;}))
+      (a.run (mkInitEvalState s))
       {left = {__errorName = (E "").__errorName;};};
 
   expectRunNixError = s: a: 
     with tests;
     expect.error
-      (a.run (EvalState {scope = s;}));
+      (a.run (mkInitEvalState s));
 
   _tests = with tests;
     let
@@ -1090,9 +1117,13 @@ rec {
         };
 
       _01_state = {
-        mk.public = expect.eq (EvalState {}).publicScope {};
-        mk.private = expect.eq (EvalState {}).scope {
-          __internal__.withScope = {};
+        mk.public = expect.noLambdasEq (mkInitEvalState {}).publicScope {};
+        mk.private = expect.noLambdasEq (mkInitEvalState {}).scope {
+          __internal__ = {
+            withScope = {};
+            initScopeM = expect.anyLambda;
+            resetScopeM = expect.anyLambda;
+          };
         };
         fmap =
           expect.noLambdasEq
@@ -1294,11 +1325,14 @@ rec {
                   in expectRunLegacy {} m {x = 2;} 2;
 
                 getScope =
-                  let m = Eval.do
-                    (set (EvalState {scope = {x = 1;};}))
-                    {state = get;}
-                    ({_, state}: _.pure state.scope);
-                  in expectRunLegacy {} m {x = 1;} {x = 1; __internal__.withScope = {};};
+                  expectRun {
+                    actual = Eval.do
+                      (set (EvalState {scope = {x = 1;};}))
+                      {state = get;}
+                      ({_, state}: _.pure state.publicScope);
+                    expected = {x = 1;};
+                    expectedScope = {x = 1;};
+                  };
 
                 appendScope =
                   let m = Eval.do
@@ -1584,7 +1618,37 @@ rec {
                     hits = 5;
                     nextId = 2;
                   };
-            };
+                };
+
+              #_04_thunksCaptureScope = 
+              #  expectRun {
+              #    actual = 
+              #      Eval.do
+              #        (setScope {a = 1;})
+              #        {x = Thunk (N.list (N.identifier "a"));}
+              #        (setScope {a = 2;})
+              #        {y = Thunk (N.list (N.identifier "a"));}
+              #        ({x, y, _}: _.pure (x ++ y));
+              #    expected = [1 2];
+              #    expectedScope = {a = 2;};
+              #    expectedThunkCache = ThunkCache {
+              #      thunks = {
+              #        "0" = CODE 0 "list";
+              #        "1" = CODE 1 "identifier";
+              #        "2" = CODE 2 "list";
+              #        "3" = CODE 3 "identifier";
+              #      };
+              #      values = { 
+              #        "0" = [ (Code 1 "identifier") ];
+              #        "1" = 1;
+              #        "2" = [ (Code 3 "identifier") ];
+              #        "3" = 2;
+              #      };
+              #      misses = 0;
+              #      hits = 4;
+              #      nextId = 5;
+              #  };
+              #};
           };
 
           _04_syntax = {
