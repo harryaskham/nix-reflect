@@ -864,13 +864,15 @@ rec {
               else r));
 
         # Apply the lambda monadically, updating and accessing the thunk cache.
-        applyM = arg:
-          runM ({_}: _.do
+        applyM = arg: {_}:
+          _.do
             (while "applying EvaluatedLambda to body thunk in a saved scope")
             # Run the lambda body inside the self._; old state, new cache
             # and save the new lambda cache state with the body thunk.
-            (evalLambdaParams argSpec param arg)
-            (evalNodeM body));
+            ((_self_.do
+              (evalLambdaParams argSpec param arg)
+              (evalNodeM body)
+            ).runM);
       })));
 
   # Evaluate a lambda expression
@@ -1089,21 +1091,6 @@ rec {
       let result = evalASTFn expr;
       in expectation result ((Either EvalError (getT expected)).Right expected);
   };
-
-  expectEvalError = expectEvalErrorWith collective-lib.tests.expect.noLambdasEq;
-  expectEvalErrorWith = expectation: E: expr:
-    let result = runAST' expr;
-    in expectation (rec {
-      resultIsLeft = isLeft result;
-      resultEMatches = is E (result.left or null);
-      inherit E;
-      resultE = result.left or result.right;
-    }) {
-      resultIsLeft = true;
-      resultEMatches = true;
-      inherit E;
-      resultE = result.left or null;
-    };
 
   _tests = with tests; suite {
 

@@ -10,11 +10,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1756294330,
-        "narHash": "sha256-arZ1vqHGWFbvz2HpSSJTvKK0r/ReNTiOmNRdyEraIcw=",
+        "lastModified": 1756384953,
+        "narHash": "sha256-CyId6Zp5Ouq6BomAYURaju6Rvmul92LF8yGVMxGhqB4=",
         "owner": "harryaskham",
         "repo": "collective-public",
-        "rev": "db49ae659b584e04063a21c0081b801507efea26",
+        "rev": "1cd7bf8a5851fa7b1fd92032c941106310518269",
         "type": "github"
       },
       "original": {

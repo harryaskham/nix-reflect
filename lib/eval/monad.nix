@@ -3,6 +3,7 @@
 let 
   inherit (nix-reflect) parser debuglib eval;
   inherit (parser) parse;
+  inherit (collective-lib.typed.script-utils.ansi-utils) ansi;
 in 
   with collective-lib.typed;
 rec {
@@ -140,6 +141,7 @@ rec {
       check = x: (x ? __isEvalError) && (x ? "__isEvalError${name}");
       __functor = self: __msg: {
         __type = EvalError;
+        __errorName = name;
         __isEvalError = true; 
         "__isEvalError${name}" = true; 
         __toString = self: _b_ ''
@@ -155,37 +157,40 @@ rec {
   Throw = EvalError "Throw";
   TypeError = EvalError "TypeError";
   RuntimeError = EvalError "RuntimeError";
+  SyntaxError = EvalError "SyntaxError";
   UnknownIdentifierError = EvalError "UnknownIdentifierError";
   MissingAttributeError = EvalError "MissingAttributeError";
   CatchableMissingAttributeError = EvalError "CatchableMissingAttributeError";
   NixPathError = EvalError "NixPathError";
+  MissingThunkError = EvalError "MissingThunkError";
+  InvalidThunkError = EvalError "InvalidThunkError";
+
+  isCatchableError = x:
+    isEvalError x
+    && (is AssertError x || is Throw x || is CatchableMissingAttributeError x);
 
   isEvalError = x: x ? __isEvalError;
 
   # Run inside the state's forcing mechanism in the case of cache miss
   forceNoCache = x: {_, ...}:
     if isThunk x then _.do
-      (while "forcing ${x} in forceNoCache")
+      (while {_ = "forcing ${x} without cache";})
       (x.__force)
     else _.do
       (while "returning value in forceNoCache against non-Thunk")
       (pure x);
 
   # Handles forcing a thunk with current state cache and writing it back
-  force = x: {_, ...}:
-    _.do
-      (while "forcing a maybe-thunk value:\n${_p_ x}")
-      ({_}:
+  force = x: {_}:
+    if !(isThunk x)
+      then _.do
+        (while "not forcing a non-thunk of type ${lib.typeOf x}")
+        (pure x)
+      else _.do
+        (while {_ = "forcing ${x} via thunk cache";})
         # Force thunks, persisting the value in the cache upon first force.
-        if isThunk x then _.do
-          {thunkCache = getThunkCache;}
-          ({thunkCache, _}: _.do
-            {result = thunkCache.forceThunk x;}
-            ({result, _}: _.do
-              (while "returning forced value after cache ${if result.hit then "hit" else "miss"} on ${x}")
-              (pure result.value)))
-        # Return other values
-        else _.pure x);
+        {thunkCache = getThunkCache;}
+        ({thunkCache, _}: _.bind (thunkCache.forceThunk x));
 
   isThunk = x: x ? __isThunk;
 
@@ -205,10 +210,10 @@ rec {
       # a runClosure/runM action.
       __force = {_, ...}: _.do
         (while "forcing ${self} in __force")
-        (runM (_self_.do
+        (_self_.do
           (while "forcing '${self.nodeType}' thunk")
           (eval.ast.evalNodeM node)
-        ));
+        );
     });
 
   Thunk = node:
@@ -269,49 +274,45 @@ rec {
 
         # Argument is just used as ID carrier.
         # TODO: ThunkCache could just hold nextId and values.
-        forceThunk = thunk_:
-          let 
-            thunkId = thunk_.thunkId;
-
-            # Ensure the thunk matches that of the cache.
-            thunk = 
-              assert that (this.thunks ? ${thunkId}) ''
-                ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
-                  ${this}
-              '';
-              this.thunks.${thunkId};
-
+        forceThunk = thunk:
+          let thunkId = thunk.thunkId;
           in {_}: _.do
             (while "forcing ${thunk} in forceThunk")
-            ({_}:
-              (if this.values ? ${thunkId} then _.do
-                (while "ThunkCache hit for ${thunk}:\n${this}")
-                (setThunkCache (ThunkCache {
-                  inherit (this) thunks values nextId misses;
-                  hits = this.hits + 1;
-                }))
-                (pure {
-                  hit = true;
-                  value = this.values.${thunkId};
-                })
-
-              else _.do
-                (while "ThunkCache miss for ${thunk}:\n${this}")
-                {value = forceNoCache thunk;}
-                # Get the state after forcing, which may have new forced values elsewhere.
-                {thunkCache = getThunkCache;}
-                ({value, thunkCache, _}: _.do
+            {thunkCache = getThunkCache;}
+            ({thunkCache, _}: _.do
+              (guard (thunkCache.thunks ? ${thunkId}) (MissingThunkError ''
+                ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
+                  ${thunkCache}
+              ''))
+              (let cachedThunk = thunkCache.thunks.${thunkId};
+                in guard (thunk.nodeType == cachedThunk.nodeType) (InvalidThunkError ''
+                ThunkCache.forceThunk:
+                  Provided thunk ${thunk} has nodeType ${thunk.nodeType}
+                  Cached thunk ${cachedThunk} has nodeType ${cachedThunk.nodeType}
+              ''))
+              ({_}:
+                if thunkCache.values ? ${thunkId} then _.do
+                  (while "ThunkCache hit for ${thunk}:\n${this}")
                   (setThunkCache (ThunkCache {
-                    inherit (thunkCache) thunks nextId hits;
-                    misses = thunkCache.misses + 1;
-                    values = thunkCache.values // { 
-                      ${thunkId} = value;
-                    };
+                    inherit (thunkCache) thunks values nextId misses;
+                    hits = thunkCache.hits + 1;
                   }))
-                  (pure {
-                    inherit value;
-                    hit = false;
-                  }))));
+                  (pure thunkCache.values.${thunkId})
+
+                else _.do
+                  (while "ThunkCache miss for ${thunk}:\n${this}")
+                  {value = forceNoCache thunk;}
+                  # Get the cache again after forcing, which may have new forced values elsewhere.
+                  {thunkCache' = getThunkCache;}
+                  ({value, thunkCache', _}: _.do
+                    (setThunkCache (ThunkCache {
+                      inherit (thunkCache') thunks nextId hits;
+                      misses = thunkCache'.misses + 1;
+                      values = thunkCache'.values // { 
+                        ${thunkId} = value;
+                      };
+                    }))
+                    (pure value))));
       }));
   };
 
@@ -556,6 +557,27 @@ rec {
           ${_h_ (joinLines (map (printStatement self.M) self.__statements))}
       '';
 
+  tryApplyDoBinding = _: doSelf: statement: f: bindings:
+    errors.try (let x = tryApply f bindings; in seq x x) (_e: _.throws (SyntaxError ''
+      Failed to bind:
+        ${printStatement doSelf.M statement}
+
+      In do-block:
+        ${doSelf}
+      
+      Against bindings:
+        ${_ph_ bindings}
+    ''));
+
+  tryApplyBinding = _: M: statement: f: bindings:
+    errors.try (let x = tryApply f bindings; in seq x x) (_e: _.throws (SyntaxError ''
+      Failed to bind:
+        ${printStatement M statement}
+      
+      Against bindings:
+        ${_ph_ bindings}
+    ''));
+
   # Given a monad M, a state containing an M bindings and an M m monadic action,
   # and a statement of one of these forms:
   #
@@ -571,8 +593,14 @@ rec {
     let normalised = normaliseBindStatement M statement;
     in
       (acc.m.bind ({_, _a}:
-        let mb_ = normalised.f (acc.bindings // { inherit _ _a; });
-            mb = if isDo mb_ then mb_.__setInitM acc.m else mb_;
+        let
+          mb_ = 
+            # After upgrading addEllipsis to use tryApply, this will return a
+            # catchable error for some syntactic-type errors in do usage like
+            # binding non-existing variables.
+            let bindings = acc.bindings // { inherit _ _a; };
+            in tryApplyDoBinding _ doSelf statement normalised.f bindings;
+         mb = if isDo mb_ then mb_.__setInitM acc.m else mb_;
         in
           assert that (isMonadOf M mb) ''
             handleBindStatement: non-${M} value returned of type ${getT mb}:
@@ -646,6 +674,8 @@ rec {
       runEmpty_ = arg: this.action.runEmpty_ arg;
       runClosure = arg: this.action.runClosure arg;
       runClosureM = arg: this.action.runClosureM arg;
+      runWithCache = arg: this.action.runWithCache arg;
+      runWithCacheM = arg: this.action.runWithCacheM arg;
       runM = arg: this.action.runM arg;
       mapState = arg: this.action.mapState arg;
       setState = arg: this.action.setState arg;
@@ -663,8 +693,6 @@ rec {
   whileV = v: msg: {_, ...}: _.whileV v msg;
   when = cond: m: {_, ...}: _.when cond m;
   unless = cond: m: {_, ...}: _.unless cond m;
-  runM = action: {_, ...}: _.runM action;
-  runEmptyM = action: {_, ...}: _.runEmptyM action;
 
   # Check if a value is a monad.
   # i.e. isMonad (Eval.pure 1) -> true
@@ -740,7 +768,6 @@ rec {
                 if isLeft this.e then this else
                 void (this.setState (const state));
 
-              # Thunked to avoid infinite nesting - (m.get {}) is an (Eval EvalState)
               get = this: {_, ...}: _.pure (this.s (S.mempty {}));
 
               setState = this: s: set_s this s;
@@ -775,9 +802,18 @@ rec {
 
               when = this: cond: m: if cond then this.bind m else this.pure unit;
               unless = this: cond: m: if !cond then this.bind m else this.pure unit;
-              whileV = this: v: s:
+              # Supports extra source printing info via while {_ = "...";}, or just while "..."
+              whileV = this: v: s_:
+                let s = 
+                  if isAttrs s_ then _b_ (with ansi; ''
+                    ${style [fg.grey] "@"} ${
+                      let p = (debuglib.pos.file s_)._;
+                      in "${atom.path p.file}:${atom.number (toString p.line)}:${atom.number (toString p.column)}"}
+                        ${_h_ ("↳ │ " + (_ls_ (mapTailLines (line: "  │ ${line}") (s_._))))}
+                  '')
+                  else s_;
                 # Add the stack logging to the monadic value itself
-                log.while s (
+                in log.while s (
                   # Add runtime tracing to the resolution of the bind only
                   this.bind (_: (log.v v).show "while ${s}" this)
                 );
@@ -804,7 +840,7 @@ rec {
                   Left = _: this;
                   Right = a: 
                     let normalised = normaliseBindStatement Eval statement;
-                        mb = normalised.f {_ = this; _a = a;};
+                        mb = tryApplyBinding this Eval statement normalised.f {_ = this; _a = a;};
                     in assert that (isMonadOf Eval mb) ''
                       Eval.bind: non-Eval value returned of type ${getT mb}:
                         ${_ph_ mb}
@@ -822,7 +858,7 @@ rec {
               # Catch specific error types and handle them with a recovery function
               # catch :: (EvalError -> Eval A) -> Eval A
               catch = this: handler:
-                if isLeft this.e then 
+                if isLeft this.e && isCatchableError this.e.left then 
                   (set_e_Right this unit)
                   .bind (handler this.e.left)
                 else this;
@@ -836,27 +872,31 @@ rec {
               runEmpty_ = this: _: ((this.run (S.mempty {})).fmap (r: r.a));
               runClosure = this: _: (this.runEmpty_ {}).unwrap;
               runClosureM = this: {_, ...}: _.pure (this.runClosure {});
-
-              # Run the given action as a closure, inheriting and passing on the current thunk cache.
-              # TODO: Do we need to manually set state here?
-              # runEmpty is causing masses of re-computation
-              runM = this: closure:
-                this.do
-                  (while "entering closure via runM")
-                  # By saving scope, we can simulate running the closure as a completely
-                  # new action without needing to force the state to run via runEmpty.
-                  {thunkCache = getThunkCache;}
-                  ({thunkCache, _}: _.saveScope ({_}: _.do
-                    (while "running closure in saved scope and inherited ThunkCache")
-                    (setThunkCache thunkCache)
-                    #(setScope initScope)
-                    (closure)));
+              runWith = this: scope: thunkCache: this.run (EvalState { inherit scope thunkCache; });
+              runWithM = this: scope: thunkCache: {_}: _.pure (this.runWith scope thunkCache);
             };
           };
         # Bind 'this'
         in rebind this {};
     };
   };
+
+  runWith = scope: thunkCache: closure:
+    (closure.runWith scope thunkCache);
+
+  runWithM = scope: thunkCache: closure:
+    pure (runWith scope thunkCache closure);
+
+  runM' = closure: {_, ...}:
+    _.do
+      {thunkCache = getThunkCache;}
+      {scope = getScope;}
+      ({thunkCache, scope, _}: runWithM scope thunkCache closure);
+
+  runM = closure:
+    saveScope ({_}: _.do
+      (setScope initScope)
+      (closure));
 
   liftA2 = f: aM: bM: {_, ...}: _.liftA2 f aM bM;
   foldM = f: initAcc: xs: {_, ...}: _.foldM f initAcc xs;
@@ -972,11 +1012,69 @@ rec {
     __force = collective-lib.tests.expect.anyLambda;
   };
 
-  expectRunWithThunkCache = a: s: s': tc': a':
+  expectEvalError = with tests; expectEvalErrorWith expect.noLambdasEq;
+
+  expectEvalErrorWith = expectation: E: expr:
+    let result = eval.ast.runAST' expr;
+    in expectation (rec {
+      resultIsLeft = isLeft result;
+      resultEMatches = is E (result.left or null);
+      inherit E;
+      resultE = result.left or result.right;
+    }) {
+      resultIsLeft = true;
+      resultEMatches = true;
+      inherit E;
+      resultE = result.left or null;
+    };
+
+  ignoreThunkCache = r: r // {s = EvalState { scope = r.s.scope; }; };
+
+  expectRun = s: a: s': a': 
+    expectRunV2 {
+      actual = a;
+      expected = a';
+      initialScope = s;
+      expectedScope = s';
+    };
+
+  expectRunV2 = {
+    actual, 
+    expected,
+    initialScope ? {},
+    expectedScope ? initialScope,
+    expectedThunkCache ? null
+  }:
+    with tests;
+    let 
+      maybeIgnoreThunkCache =
+        if expectedThunkCache == null then ignoreThunkCache else id;
+    in expect.eqOn
+      (e: 
+        if e ? right then Compare.NoLambdas (maybeIgnoreThunkCache e.right)
+        else Compare.NoLambdas e)
+      (actual.run (EvalState {scope = initialScope;}))
+      (maybeIgnoreThunkCache { 
+        s = EvalState {scope = expectedScope; thunkCache = def {} expectedThunkCache;};
+        a = expected;
+      });
+
+  expectRunError = s: a: e: 
     with tests;
     expect.noLambdasEq
-      (a.run (EvalState {scope = s;})).right
-      { s = EvalState {scope = s'; thunkCache = tc';}; a = a'; };
+      ((a.run (EvalState {scope = s;})).left or {__notLeft = true;})
+      e;
+
+  expectRunErrorType = s: a: E: 
+    with tests;
+    expect.eqOn (e: e.left.__errorName or {__notLeft = e;})
+      (a.run (EvalState {scope = s;}))
+      {left = {__errorName = (E "").__errorName;};};
+
+  expectRunNixError = s: a: 
+    with tests;
+    expect.error
+      (a.run (EvalState {scope = s;}));
 
   _tests = with tests;
     let
@@ -1035,18 +1133,6 @@ rec {
             catchAfterThrow = thenThrows.catch (e: {_}: _.pure "handled error '${e}'");
             fmapAfterCatch = catchAfterThrow.fmap (s: s + " then ...");
           };
-          expectRun = s: a: s': a': 
-            let r = (a.run (EvalState {scope = s;})).right;
-            in expect.noLambdasEq
-              (r // { s = EvalState { scope = r.s.scope; };})  # Ignore the thunk cache
-              { 
-                s = EvalState {scope = s';};
-                a = a';
-              };
-          expectRunError = s: a: e: 
-            expect.noLambdasEq
-              (a.run (EvalState {scope = s;})).left
-              e;
         in with EvalState; {
           __smoke = {
             isMonadOf.monad = expect.True (isMonadOf Eval (Eval.pure unit));
@@ -1387,19 +1473,19 @@ rec {
 
               _02_printDo = {
                 minimalDoBlock = expect.eq (toString testData.minimalDoBlock) (_b_ ''
-                  Eval.do <monad.nix:13>
+                  Eval.do <monad.nix:14>
                     {a = Eval.pure "pure string";}
                     ({_, a, ...}: (<Eval Unit>))
                 '');
                 doBlock = expect.eq (toString testData.doBlock) (_b_ ''
-                  Eval.do <monad.nix:18>
+                  Eval.do <monad.nix:19>
                     {a = Eval.pure "independent bind";}
                     {b = pure "implicit dependent bind";}
                     {c = {_}: _.pure "implicit dependent bind";}
                     (<Eval string>)
                     ({_, ...}: (<Eval Unit>))
                     ({_, ...}: (<Eval Unit>))
-                    (Eval.do <monad.nix:25>
+                    (Eval.do <monad.nix:26>
                       {a = Eval.pure "nested independent bind";}
                       {b = pure "nested implicit dependent bind";}
                       {c = {_}: _.pure "nested implicit dependent bind";}
@@ -1470,53 +1556,88 @@ rec {
               };
             };
 
-            _05_thunkCache = with parser; {
+            _03_thunkCache = with parser; {
               _00_getEmpty =
-                expectRunWithThunkCache 
-                  (Eval.do
-                    (getThunkCache))
-                  {}
-                  {}
-                  (ThunkCache {})
-                  (ThunkCache {});
+                expectRunV2 {
+                  actual =
+                    Eval.do
+                      getThunkCache;
+                  expected = ThunkCache {};
+                };
 
               _01_put = 
-                expectRunWithThunkCache
-                  (Eval.do
-                    (Thunk (N.string "x")))
-                  {}
-                  {}
-                  (ThunkCache {
+                expectRunV2 {
+                  actual =
+                    Eval.do
+                      (Thunk (N.string "x"));
+                  expected = CODE 0 "string";
+                  expectedThunkCache = ThunkCache {
                     thunks = { "0" = CODE 0 "string"; };
                     nextId = 1;
-                  })
-                  (CODE 0 "string");
+                  };
+                };
 
-              _02_putGet = 
-                expectRunWithThunkCache
-                  (Eval.do
+              _03_putGetMany = 
+                expectRunV2 {
+                  actual =
+                    Eval.do
                     {x = Thunk (N.string "x");}
-                    ({x, _}: _.do
-                      {x'0 = force x;}        # Miss
-                      {x'1 = forceNoCache x;} # N/A
-                      {x'2 = force x;}        # Hit
-                      {x'3 = forceNoCache x;} # N/A
-                      {x'4 = force x;}        # Hit
-                      ({x'0, x'1, x'2, x'3, x'4, _}: _.pure [x'0 x'1 x'2 x'3 x'4])))
-                  {}
-                  {}
-                  (ThunkCache {
-                    thunks = { "0" = CODE 0 "string"; };
-                    values = { "0" = "x"; };
-                    misses = 1;
-                    hits = 2;
-                    nextId = 1;
-                  })
-                  ["x" "x" "x" "x" "x"];
+                    {y = Thunk (N.int 1);}
+                    ({x, y, _}: _.do
+                      {x'0 = force x;} # Miss
+                      {x'1 = force x;} # Hit
+                      {x'2 = force x;} # Hit
+                      {y'0 = force y;} # Miss
+                      {x'3 = force x;} # Hit
+                      {y'1 = force y;} # Hit
+                      {x'4 = force x;} # Hit
+                      ({x'0, x'1, x'2, x'3, x'4, y'0, y'1, _}: _.pure [x'0 x'1 x'2 x'3 x'4 y'0 y'1]));
+                  expected = ["x" "x" "x" "x" "x" 1 1];
+                  expectedThunkCache = ThunkCache {
+                    thunks = { "0" = CODE 0 "string"; "1" = CODE 1 "int"; };
+                    values = { "0" = "x"; "1" = 1; };
+                    misses = 2;
+                    hits = 5;
+                    nextId = 2;
+                  };
             };
-
           };
-        };
 
+          _04_syntax = {
+            _00_missingBind =
+              expectRunErrorType {}
+                (Eval.do ({a, _}: _.pure a))
+                SyntaxError;
+            _01_missingBindNotCatchable =
+              expectRunErrorType {}
+                ((Eval.do ({a, _}: _.pure a)).catch (_e: pure "got ${_e}"))
+                SyntaxError;
+          };
+
+          _05_runM = {
+            _00_simple = expectRun {}
+              (Eval.do
+                (runM (Eval.do (pure 1))))
+              {} 1;
+
+            _01_bindingsDontLeakIntoRunM =
+              expectRunErrorType {}
+                (Eval.do
+                  {a = pure 1;}
+                  (runM (Eval.do ({a, _}: _.pure a))))
+                SyntaxError;
+
+            _02_scopeDoesntLeakIntoRunM =
+              expectRun {}
+                (Eval.do
+                  (setScope {a = 1;})
+                  (runM (Eval.do 
+                    {scope = {_}: _.getScope;}
+                    ({scope, _}: _.pure (scope.a or null)))))
+                {a = 1;} null;
+          };
+
+        };
+      };
     };
 }
