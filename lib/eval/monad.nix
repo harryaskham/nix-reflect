@@ -138,6 +138,7 @@ rec {
     check = x: x ? __isEvalError;
     __functor = self: name: {
       __toString = self: "EvalError.${name}";
+      __isErrorType = true;
       check = x: (x ? __isEvalError) && (x ? "__isEvalError${name}");
       __functor = self: __msg: {
         __type = EvalError;
@@ -152,6 +153,9 @@ rec {
       };
     };
   };
+
+  isErrorType = x: x ? __isErrorType;
+
   Abort = EvalError "Abort";
   AssertError = EvalError "AssertError";
   Throw = EvalError "Throw";
@@ -194,20 +198,15 @@ rec {
       __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
 
       # Run the thunk fully and return the full monadic output {s, a}
-      runWithCacheM = thunkCache: {_, ...}: _.do
-        (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
-        {scope = getInitScope;}
-        ({scope, _}: _.do
-          {result = 
-            runWithM scope thunkCache
-              (_self_.do
-                (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
-                (eval.ast.evalNodeM node));}
-          ({result, _}: _.do
-            (result.case {
-              Left = liftEither;
-              Right = pure;
-            })));
+      runWithCacheM = thunkCache: {_, ...}: 
+        (_self_.do
+          (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
+          (setThunkCache thunkCache)
+          (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
+          (eval.ast.evalNodeM node)).case {
+            Left = liftEither;
+            Right = pure;
+          };
     });
 
   Thunk = node:
@@ -216,7 +215,10 @@ rec {
     else {_}: _.do
       (while "constructing '${node.nodeType}' Thunk")
       {thunkCache = getThunkCache;}
-      ({thunkCache, _}: _.bind (thunkCache.cacheNode node));
+      {thunk = {thunkCache, _}: _.bind (thunkCache.cacheNode node);}
+      ({thunk, _}: _.do 
+        (while "returning constructed ${thunk}")
+        (pure thunk));
 
   ThunkCache = {
     __toString = self: "ThunkCache";
@@ -264,6 +266,7 @@ rec {
               thunks = this.thunks // { ${thunkId} = thunk; };
               nextId = this.nextId + 1;
             }))
+            (whileV 3 "returning ${thunk} from cacheNode")
             (pure thunk);
 
         # Argument is just used as ID carrier.
@@ -312,11 +315,11 @@ rec {
   EvalState = rec {
     __toString = self: "EvalState";
     check = x: x ? __isEvalState;
-    mempty = _: EvalState {};
+    mempty = _: initState;
 
-    __functor = self: {scope ? {}, thunkCache ? ThunkCache {}}: (lib.fix (this: {
+    __functor = self: {scope ? initScope, thunkCache ? ThunkCache {}}: (lib.fix (this: {
       inherit scope thunkCache;
-      publicScope = removeAttrs scope ["__internal__"];
+      publicScope = {}: removeAttrs scope ["__internal__"];
 
       __type = EvalState;
       __isEvalState = true;
@@ -334,7 +337,7 @@ rec {
         '';
       } // args);
 
-      fmap = f: EvalState { scope = f this.scope; inherit (this) thunkCache; };
+      fmap = f: EvalState { scope = f scope; inherit (this) thunkCache; };
     }));
   };
 
@@ -352,12 +355,15 @@ rec {
     scope // {
       __internal__ = {
         withScope = {};
+        initScope = {}: self;
         initScopeM = {_}: _.pure self;
         resetScopeM = {_}: _.do
           (while "resetting scope")
           (bind (setScope self));
       };
     });
+
+  testScope = scope: recursiveMergeAttrsList [ (mkInitScope initScope) scope ];
 
   initState = mkInitEvalState initScope;
 
@@ -652,7 +658,7 @@ rec {
       bind = statement:
         log.while ("binding a do-statement:\n${printStatement M statement}") (
         M.do
-          (this.action.bind statement)
+          ({_}: _.bind (this.action.bind statement))
         );
 
       sq = b: this.bind (_: b);
@@ -780,7 +786,7 @@ rec {
 
               get = this: {_, ...}: _.pure (this.s (S.mempty {}));
 
-              strictState = true;
+              strictState = false;
               setState = this: s:
                 let state = if this.strictState then const (s (S.mempty {})) else s;
                 in set_s this s;
@@ -795,6 +801,8 @@ rec {
               getScope = this: this.bind getScope;
               getPublicScope = this: this.bind getPublicScope;
               setScope = this: newScope: this.bind (setScope newScope);
+              setPublicScope = this: newScope: this.bind (setPublicScope newScope);
+              modifyPublicScope = this: f: this.bind (modifyPublicScope f);
               saveScope = this: f: this.bind (saveScope f);
               modifyScope = this: f: this.bind (modifyScope f);
               prependScope = this: newScope: this.bind (prependScope newScope);
@@ -938,11 +946,32 @@ rec {
       (while "setting scope")
       {state = get;}
       ({state, _}: _.set (EvalState {inherit scope; inherit (state) thunkCache;}));
+
+  guardScopeUpdate = scope: {_, ...}: _.do
+    (guard (!(scope ? __internal__)) (RuntimeError ''
+      scope must not contain __internal__:
+        ${_ph_ scope}
+    ''));
+
+  setPublicScope = scope: {_, ...}:
+    _.do
+      (while "setting public scope")
+      (guardScopeUpdate scope)
+      {state = get;}
+      ({state, _}: _.set (EvalState {
+        scope = scope // {inherit (state.scope) __internal__;};
+        inherit (state) thunkCache;
+      }));
   
   modifyScope = f: {_, ...}:
     _.do
       (while "modifying scope")
       (modify (s: s.fmap f));
+
+  modifyPublicScope = f: {_, ...}:
+    _.do
+      (while "modifying public scope")
+      (modifyScope (scope: f scope // {inherit (scope) __internal__;}));
 
   getScope = {_, ...}:
     _.do
@@ -954,11 +983,12 @@ rec {
     _.do
       (while "getting public scope")
       {state = get;}
-      ({_, state}: _.pure state.publicScope);
+      ({_, state}: _.pure (state.publicScope {}));
 
   prependScope = newScope: {_, ...}:
     _.do
       (while "prepending scope")
+      (guardScopeUpdate newScope)
       (modifyScope (scope: newScope // scope));
 
   prependScopeM = newScopeM: {_, ...}:
@@ -970,6 +1000,7 @@ rec {
   appendScope = newScope: {_, ...}:
     _.do
       (while "appending scope")
+      (guardScopeUpdate newScope)
       (modifyScope (scope: scope // newScope));
 
   appendScopeM = newScopeM: {_, ...}:
@@ -997,7 +1028,7 @@ rec {
     {scope = getScope;}
     ({scope, _}: _.setScope (scope // {
       __internal__ = scope.__internal__ // { 
-        withScope = (scope.__internal__.withScope or {}) // withScope;
+        withScope = scope.__internal__.withScope // withScope;
       };
     }));
 
@@ -1033,54 +1064,61 @@ rec {
       resultE = result.left or null;
     };
 
-  ignoreState = {thunkCache ? false, internal ? false}: r:
-    r // {s = EvalState { 
-      scope = if internal then removeAttrs r.s.scope ["__internal__"] else r.s.scope; 
-      thunkCache = if thunkCache then ThunkCache {} else r.s.thunkCache;
-    }; };
-
-  expectRunLegacy = s: a: s': a': 
-    expectRun {
-      actual = a;
-      expected = a';
-      initialScope = s;
-      expectedScope = s';
-    };
+  removeBuiltins = s:
+    if EvalState.check s then EvalState { 
+      scope = removeAttrs s.scope ["builtins"];
+      inherit (s) thunkCache;
+    } else if isAttrs s then removeAttrs s ["builtins"] else s;
 
   expectRun = {
     actual, 
     expected,
-    initialScope ? {},
-    expectedScope ? mkInitEvalState initialScope,
+    initialScope ? initScope,
+    includeBuiltins ? false,
+    expectedScope ? null,
+    buildExpectedScope ? mkInitScope,
     expectedThunkCache ? null
   }:
     with tests;
     let 
-      maybeIgnore = ignoreState {
-        internal = true;
-        thunkCache = expectedThunkCache == null;
-      };
-    in expect.eqOn
-      (e: 
-        if e ? right then Compare.NoLambdas (maybeIgnore e.right)
-        else Compare.NoLambdas e)
-      (actual.run (mkInitEvalState initialScope))
-      (maybeIgnore { 
-        s = EvalState {scope = expectedScope; thunkCache = def {} expectedThunkCache;};
-        a = expected;
-      });
+      maybeRemoveBuiltins = e: 
+        if includeBuiltins then e else e // { 
+          s = removeBuiltins e.s;
+          a = removeBuiltins e.a;
+        };
+
+      initialState = mkInitEvalState initialScope;
+      r = actual.run initialState;
+    in 
+      if isErrorType expected then
+        expect.eqOn (e: e.left.__errorName or {__notLeft = e;})
+          r
+          {left = {__errorName = (E "").__errorName;};}
+
+      else 
+        expect.eqOn
+          (e: 
+            if e ? right then Compare.NoLambdas e.right
+            else Compare.NoLambdas e)
+          (r.fmap maybeRemoveBuiltins)
+          {
+            right = maybeRemoveBuiltins {
+              s = EvalState {
+                scope =
+                  if expectedScope == null then r.right.s.scope 
+                  else buildExpectedScope expectedScope;
+                thunkCache =
+                   def (r.right.s.thunkCache or null) expectedThunkCache;
+              };
+              a = expected;
+            };
+          };
 
   expectRunError = s: a: e: 
     with tests;
     expect.noLambdasEq
       ((a.run (mkInitEvalState s)).left or {__notLeft = true;})
       e;
-
-  expectRunErrorType = s: a: E: 
-    with tests;
-    expect.eqOn (e: e.left.__errorName or {__notLeft = e;})
-      (a.run (mkInitEvalState s))
-      {left = {__errorName = (E "").__errorName;};};
 
   expectRunNixError = s: a: 
     with tests;
@@ -1117,17 +1155,11 @@ rec {
         };
 
       _01_state = {
-        mk.public = expect.noLambdasEq (mkInitEvalState {}).publicScope {};
-        mk.private = expect.noLambdasEq (mkInitEvalState {}).scope {
-          __internal__ = {
-            withScope = {};
-            initScopeM = expect.anyLambda;
-            resetScopeM = expect.anyLambda;
-          };
-        };
+        mk.public = expect.noLambdasEq ((EvalState {scope = mkInitScope {};}).publicScope {}) {};
+        mk.private = expect.noLambdasEq (EvalState {scope = mkInitScope {};}).scope (mkInitScope {});
         fmap =
           expect.noLambdasEq
-          ((EvalState {}).fmap (scope: scope // {x = 1;}))
+          ((EvalState {scope = {};}).fmap (scope: scope // {x = 1;}))
           (EvalState {scope = {x = 1;};});
       };
 
@@ -1135,8 +1167,8 @@ rec {
         let
           a = rec {
             _42 = Eval.pure (Int 42);
-            stateXIs2 = _42.bind (set (EvalState {scope = { x = 2; };}));
-            stateXTimes3 = stateXIs2.bind (modify (s: EvalState {scope = { x = s.scope.x * 3; };}));
+            stateXIs2 = _42.bind (set (mkInitEvalState { x = 2; }));
+            stateXTimes3 = stateXIs2.bind (modify (s: mkInitEvalState { x = s.scope.x * 3; }));
             const42 = stateXTimes3.pure (Int 42);
             getStatePlusValue = 
               const42.bind ({_, _a}:
@@ -1162,15 +1194,15 @@ rec {
           };
 
           _00_chain = {
-            _00_pure = expectRunLegacy {} a._42 {} (Int 42);
-            _01_set = expectRunLegacy {} a.stateXIs2 { x = 2; } unit;
-            _02_modify = expectRunLegacy {} a.stateXTimes3 { x = 6; } unit;
-            _04_bind.get = expectRunLegacy {} a.getStatePlusValue { x = 6; } (Int 48);
+            _00_pure = expectRun { actual = a._42; expected = Int 42; };
+            _01_set = expectRun { actual = a.stateXIs2; expected = unit; expectedScope = { x = 2; }; };
+            _02_modify = expectRun { actual = a.stateXTimes3; expected = unit; expectedScope = { x = 6; }; };
+            _04_bind.get = expectRun { actual = a.getStatePlusValue; expected = Int 48; expectedScope = { x = 6; }; };
             _05_bind.thenThrows = expectRunError {} a.thenThrows (Throw "test error");
             _06_bind.bindAfterThrow = expectRunError {} a.bindAfterThrow (Throw "test error");
-            _07_catch.noError = expectRunLegacy {} (a._42.catch (_: throw "no")) {} (Int 42);
-            _08_catch.withError = expectRunLegacy {} a.catchAfterThrow { x = 6; } "handled error 'EvalError.Throw:\n  test error'";
-            _09_catch.thenFmap = expectRunLegacy {} a.fmapAfterCatch { x = 6; } "handled error 'EvalError.Throw:\n  test error' then ...";
+            _07_catch.noError = expectRun { actual = (a._42.catch (_: throw "no")); expected = Int 42; };
+            _08_catch.withError = expectRun { actual = a.catchAfterThrow; expected = "handled error 'EvalError.Throw:\n  test error'"; expectedScope = { x = 6; }; };
+            _09_catch.thenFmap = expectRun { actual = a.fmapAfterCatch; expected = "handled error 'EvalError.Throw:\n  test error' then ..."; expectedScope = { x = 6; }; };
           };
           
           _01_signatures = {
@@ -1201,28 +1233,28 @@ rec {
 
           _03_doNotation = {
             _00_basic = {
-              const = expectRunLegacy {} (Eval.do (Eval.pure 123)) {} 123;
+              const = expectRun { actual = (Eval.do (Eval.pure 123)); expected = 123; };
 
-              constBound = expectRunLegacy {} (Eval.do ({_}: _.pure 123)) {} 123;
+              constBound = expectRun { actual = (Eval.do ({_}: _.pure 123)); expected = 123; };
 
               bindOne =
                 let m = Eval.do {x = Eval.pure 1;} ({_, ...}: _.pure unit);
-                in expectRunLegacy {} m {} unit;
+                in expectRun { actual = m; expected = unit; };
 
               bindOneBound =
                 let m = Eval.do {x = {_}: _.pure 1;} ({_}: _.pure unit);
-                in expectRunLegacy {} m {} unit;
+                in expectRun { actual = m; expected = unit; };
 
               bindOneGetOne =
                 let m = Eval.do {x = Eval.pure 1;} ({_, x}: _.pure x);
-                in expectRunLegacy {} m {} 1;
+                in expectRun { actual = m; expected = 1; };
 
               dependentBindGet = 
                 let m = Eval.do
                   {x = {_}: _.pure 1;}
                   {y = {_, x}: _.pure (x + 1);}
                   ({_, x, y}: _.pure (x + y));
-                in expectRunLegacy {} m {} 3;
+                in expectRun { actual = m; expected = 3; };
 
               boundDo = 
                 let do = Eval.do; in with Eval;
@@ -1230,13 +1262,13 @@ rec {
                   {x = Eval.pure 1;}
                   {y = Eval.pure 2;}
                   ({x, y, ...}: Eval.pure (x + y));
-                in expectRunLegacy {} m {} 3;
+                in expectRun { actual = m; expected = 3; };
 
               guard.pass =
                 let m = Eval.do
                   ( {_}: _.guard true (TypeError "fail"))
                   ( {_}: _.pure unit );
-                in expectRunLegacy {} m {} unit;
+                in expectRun { actual = m; expected = unit; };
 
               guard.fail =
                 let m = Eval.do
@@ -1247,245 +1279,261 @@ rec {
 
             _01_setGet = {
               _00_helpers = {
-                _00_get = 
-                  let m = Eval.do
+                _00_get = expectRun {
+                  actual = Eval.do (getPublicScope);
+                  expected = initScope;
+                };
+
+                _01_set = expectRun { 
+                  actual = Eval.do (setPublicScope {x = 1;});
+                  expected = unit;
+                  expectedScope = mkInitScope {x = 1;};
+                };
+
+                _02_setSet = expectRun { 
+                  actual = Eval.do
+                    (setPublicScope {x = 1;})
+                    (setPublicScope {y = 2;});
+                  expected = unit;
+                  expectedScope = {y = 2;};
+                };
+
+                _03_setModGet = expectRun { 
+                  actual = Eval.do
+                    (setPublicScope {x = 1;})
+                    (modifyPublicScope (scope: scope // {x = scope.x + 2; y = 2;}))
                     (getPublicScope);
-                  in expectRunLegacy {} m {} {};
-
-                _01_set = 
-                  let m = Eval.do (setScope {x = 1;});
-                  in expectRunLegacy {} m {x = 1;} unit;
-
-                _02_setSet = 
-                  let m = Eval.do
-                    (setScope {x = 1;})
-                    (setScope {y = 2;});
-                  in expectRunLegacy {} m {y = 2;} unit;
-
-                _03_setModGet = 
-                  let m = Eval.do
-                    (setScope {x = 1;})
-                    (modifyScope (scope: scope // {x = scope.x + 2; y = 2;}))
-                    (getPublicScope);
-                  in expectRunLegacy {} m {x = 3; y = 2;} {x = 3; y = 2;};
+                  expected = {x = 3; y = 2;};
+                  expectedScope = {x = 3; y = 2;};
+                };
 
                 _04_setModGetBlocks = 
-                  let sets = {_, ...}: _.setScope {x = 1;};
-                      mods = {_, ...}: _.modifyScope (scope: scope // {x = scope.x + 2; y = 2;});
+                  let sets = {_, ...}: _.setPublicScope {x = 1;};
+                      mods = {_, ...}: _.modifyPublicScope (scope: scope // {x = scope.x + 2; y = 2;});
                       gets = {_, ...}: _.getPublicScope;
                       m = Eval.do sets mods gets;
-                  in expectRunLegacy {} m {x = 3; y = 2;} {x = 3; y = 2;};
+                  in expectRun { actual = m; expected = {x = 3; y = 2;}; expectedScope = {x = 3; y = 2;}; };
 
                 _05_setModGetBlocksDo = 
-                  let sets = Eval.do ({_, ...}: _.setScope {x = 1;});
-                      mods = Eval.do ({_, ...}: _.modifyScope (scope: scope // {x = scope.x + 2; y = 2;}));
+                  let sets = Eval.do ({_, ...}: _.setPublicScope {x = 1;});
+                      mods = Eval.do ({_, ...}: _.modifyPublicScope (scope: scope // {x = scope.x + 2; y = 2;}));
                       gets = Eval.do ({_, ...}: _.getPublicScope);
                       m = Eval.do sets mods gets;
-                  in expectRunLegacy {} m {x = 3; y = 2;} {x = 3; y = 2;};
+                  in expectRun { actual = m; expected = {x = 3; y = 2;}; expectedScope = {x = 3; y = 2;}; };
 
                 _06_useScope = 
                   let 
                     getClear = Eval.do
                       {scope = getPublicScope;}
-                      (setScope {cleared = true;})
+                      (setPublicScope {cleared = true;})
                       ({_, scope}: _.pure scope);
 
                     xInc4 = Eval.do
                       {scope = getPublicScope;}
-                      ({_, scope}: _.modify (s: s.fmap (scope': scope' // {x = scope.x + 1;})))
-                      (modifyScope (scope: scope // {x = scope.x + 3;}));
+                      ({_, scope}: _.modifyPublicScope (scope': scope' // {x = scope.x + 1;}))
+                      (modifyPublicScope (scope: scope // {x = scope.x + 3;}));
 
                     m = Eval.do
-                      ({_}: _.setScope {x = 1;})
+                      ({_}: _.setPublicScope {x = 1;})
                       xInc4
                       xInc4
                       getClear;
 
-                  in expectRunLegacy {} m {cleared = true;} {x = 9;};
+                  in expectRun { actual = m; expected = {x = 9;}; expectedScope = {cleared = true;}; };
               };
 
               _01_blocks = {
-                do =
+                _00_do =
                   let m = Eval.do
-                    (set (EvalState {scope = {x = 1;};}))
-                    get;
-                  in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    (setPublicScope {x = 1;})
+                    getPublicScope;
+                  in expectRun { actual = m; expected = {x = 1;}; expectedScope = {x = 1;}; };
 
-                chainBlocks =
-                  let a = Eval.do (set (EvalState {scope = {x = 1;};}));
-                      b = Eval.do a get;
+                _01_chainBlocks =
+                  let a = Eval.do (setPublicScope {x = 1;});
+                      b = Eval.do a getPublicScope;
                       m = Eval.do b;
-                  in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                  in expectRun { actual = m; expected = {x = 1;}; expectedScope = {x = 1;}; };
 
-                withoutDo =
-                  let a = set (EvalState {scope = {x = 1;};});
-                      b = modify (s: s.fmap (scope: {x = scope.x + 1;}));
-                      c = {_}: (_.bind _.get).bind ({_, _a}: _.pure _a.scope.x);
+                _02_withoutDo =
+                  let a = setPublicScope {x = 1;};
+                      b = modifyPublicScope (scope: scope // {x = scope.x + 1;});
+                      c = {_}: (_.bind _.getPublicScope).bind ({_, _a}: _.pure _a.x);
                       m = (((Eval.pure unit).bind a).bind b).bind c;
-                  in expectRunLegacy {} m {x = 2;} 2;
+                  in expectRun { actual = m; expected = 2; expectedScope = {x = 2;}; };
 
-                getScope =
+                _03_getScope =
                   expectRun {
                     actual = Eval.do
-                      (set (EvalState {scope = {x = 1;};}))
-                      {state = get;}
-                      ({_, state}: _.pure state.publicScope);
+                      (setPublicScope {x = 1;})
+                      getPublicScope;
                     expected = {x = 1;};
                     expectedScope = {x = 1;};
                   };
 
-                appendScope =
+                _04_appendScope =
                   let m = Eval.do
-                    (set (EvalState {scope = {x = 1;};}))
-                    (modify (s: s.fmap (scope: scope // {y = 2;})))
-                    {state = get;}
-                    ({_, state}: _.pure state.publicScope);
-                  in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    (setPublicScope {x = 1;})
+                    (modifyPublicScope (scope: scope // {y = 2;}))
+                    getPublicScope;
+                  in expectRun { actual = m; expected = {x = 1; y = 2;}; expectedScope = {x = 1; y = 2;}; };
 
-                overwriteScopeAppend =
+                _05_overwriteScopeAppend =
                   let m = Eval.do
-                    (set (EvalState {scope = {x = 1;};}))
-                    (modify (s: s.fmap (scope: scope // {x = 2;})))
-                    {state = get;}
-                    ({_, state}: _.pure state.publicScope);
-                  in expectRunLegacy {} m {x = 2;} {x = 2;};
+                    (setPublicScope {x = 1;})
+                    (modifyPublicScope (scope: scope // {x = 2;}))
+                    getPublicScope;
+                  in expectRun { actual = m; expected = {x = 2;}; expectedScope = {x = 2;}; };
 
-                overwriteScopePrepend =
+                _06_overwriteScopePrepend =
                   let m = Eval.do
-                    (set (EvalState {scope = {x = 1;};}))
-                    (modify (s: s.fmap (scope: {x = 2;} // scope)))
-                    {state = get;}
-                    ({_, state}: _.pure state.publicScope);
-                  in expectRunLegacy {} m {x = 1;} {x = 1;};
+                    (setPublicScope {x = 1;})
+                    (modifyPublicScope (scope: {x = 2;} // scope))
+                    getPublicScope;
+                  in expectRun { actual = m; expected = {x = 1;}; expectedScope = {x = 1;}; };
                 
-                saveScopeAppendScope =
+                _07_saveScopeAppendScope =
                   let m = Eval.do
-                    (setScope {x = 1;})
+                    (setPublicScope {x = 1;})
                     (saveScope ({_}: _.do
                       (appendScope {y = 2;})
                       getPublicScope
                     ));
-                  in expectRunLegacy {} m {x = 1;} {x = 1; y = 2;};
+                  in expectRun { actual = m; expected = {x = 1; y = 2;}; expectedScope = {x = 1;}; };
 
-                nestedSaveScope =
-                  let m = Eval.do
-                    (setScope {x = 1;})
-                    (saveScope ({_}: _.do
-                      (appendScope {y = 2;})
-                      (saveScope ({_}: _.do
-                        (appendScope {z = 3;})
-                        getPublicScope
-                      ))
-                    ));
-                  in expectRunLegacy {} m {x = 1;} {x = 1; y = 2; z = 3;};
+                _08_nestedSaveScope =
+                  expectRun { 
+                    actual = 
+                      Eval.do
+                        (setPublicScope {x = 1;})
+                        (saveScope ({_}: _.do
+                          (appendScope {y = 2;})
+                          (saveScope ({_}: _.do
+                            (appendScope {z = 3;})
+                            getPublicScope
+                          ))
+                        ));
+                    expected = {x = 1; y = 2; z = 3;};
+                    expectedScope = {x = 1;};
+                  };
 
-                withScope = {
+                _09_withScope = {
                   _00_empty = 
-                    expectRunLegacy {} 
-                    (Eval.do (setWithScope {})) {} unit;
+                    expectRun { 
+                      actual = (Eval.do (setWithScope {})); 
+                      expected = unit; 
+                    };
                   _01_set = 
-                    expectRunLegacy {}
-                    (Eval.do (setWithScope {x = 1;})) 
-                    {__internal__.withScope.x = 1;} unit;
+                    expectRun {
+                      actual = (Eval.do (setWithScope {x = 1;})); 
+                      expected = unit;
+                      buildExpectedScope = id;
+                      expectedScope = testScope { __internal__.withScope.x = 1; };
+                    };
                   _02_append = 
-                    expectRunLegacy {}
-                    (Eval.do (appendWithScope {x = 1;})) 
-                    {__internal__.withScope.x = 1;} unit;
+                    expectRun {
+                      actual = (Eval.do (appendWithScope {x = 1;})); 
+                      expected = unit;
+                      buildExpectedScope = id;
+                      expectedScope = testScope { __internal__.withScope.x = 1; };
+                    };
                   _03_overwrite = 
-                    expectRunLegacy {}
-                    (Eval.do (setWithScope {x = 2;}) (appendWithScope {x = 3;}))
-                    {__internal__.withScope.x = 3;} unit;
+                    expectRun {
+                      actual = (Eval.do (setWithScope {x = 2;}) (appendWithScope {x = 3;})); 
+                      expected = unit;
+                      buildExpectedScope = id;
+                      expectedScope = testScope { __internal__.withScope.x = 3; };
+                    };
                   _04_appendAppend = 
-                    expectRunLegacy {} 
-                    (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;})) 
-                    {__internal__.withScope = {x = 1; y = 2;};} unit;
+                    expectRun { 
+                      actual = (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;})); 
+                      expected = unit;
+                      buildExpectedScope = id;
+                      expectedScope = testScope { __internal__.withScope = {x = 1; y = 2;}; };
+                    };
                   _05_appendAppendAppend = 
-                    expectRunLegacy {} 
-                    (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;}) (appendWithScope {z = 3;})) 
-                    {__internal__.withScope = {x = 1; y = 2; z = 3;};} unit;
+                    expectRun { 
+                      actual = (Eval.do (appendWithScope {x = 1;}) (appendWithScope {y = 2;}) (appendWithScope {z = 3;})); 
+                      expected = unit;
+                      buildExpectedScope = id;
+                      expectedScope = testScope { __internal__.withScope = {x = 1; y = 2; z = 3;}; };
+                    };
                 };
 
-                differentBlocks = {
-
-                  differentBlocks =
-                    let a = set (EvalState {scope = {x = 1;};});
-                        b = get;
+                _10_differentBlocks = {
+                  _00_differentBlocks =
+                    let a = setPublicScope {x = 1;};
+                        b = getPublicScope;
                         m = Eval.do a b;
-                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRun { actual = m; expected = {x = 1;}; expectedScope = {x = 1;}; };
 
-                  differentBlocksBind =
-                    let a = set (EvalState {scope = {x = 1;};});
-                        b = get;
+                  _01_differentBlocksBind =
+                    let a = setPublicScope {x = 1;};
+                        b = getPublicScope;
                         m = ((Eval.pure unit).bind a).bind b;
-                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRun { actual = m; expected = {x = 1;}; expectedScope = {x = 1;}; };
 
-                  differentDoBlocks =
-                    let a = {_}: _.do (set (EvalState {scope = {x = 1;};}));
-                        b = {_}: _.do get;
+                  _02_differentDoBlocks =
+                    let a = {_}: _.do (setPublicScope {x = 1;});
+                        b = {_}: _.do getPublicScope;
                         m = Eval.do a b;
-                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRun { actual = m; expected = {x = 1;}; expectedScope = {x = 1;}; };
 
-                  differentEvalDoBlocks =
-                    let a = Eval.do (set (EvalState {scope = {x = 1;};}));
-                        b = Eval.do get;
+                  _03_differentEvalDoBlocks =
+                    let a = Eval.do (setPublicScope {x = 1;});
+                        b = Eval.do getPublicScope;
                         m = Eval.do a b;
-                    in expectRunLegacy {} m {x = 1;} (EvalState {scope = {x = 1;};});
+                    in expectRun { actual = m; expected = {x = 1;}; expectedScope = {x = 1;}; };
 
-                  appendScopeDifferentEvalBlock =
+                  _04_appendScopeDifferentEvalBlock =
                     let 
                       a = 
                         Eval.do 
-                          (set (EvalState {scope = {x = 1;};}))
-                          (modify (s: s.fmap (scope: scope // {y = 2;})))
-                          {state = get;}
-                          ({_, state}: _.pure state.publicScope);
+                          (setPublicScope {x = 1;})
+                          (modifyPublicScope (scope: scope // {y = 2;}))
+                          getPublicScope;
                       m = Eval.do a;
-                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRun { actual = m; expected = {x = 1; y = 2;}; expectedScope = {x = 1; y = 2;}; };
 
-                  appendScopeDifferentEvalBlocks =
+                  _05_appendScopeDifferentEvalBlocks =
                     let 
                       a = 
                         Eval.do 
-                          (set (EvalState {scope = {x = 1;};}))
-                          (modify (s: s.fmap (scope: scope // {y = 2;})))
-                          {state = get;}
-                          ({_, state}: _.pure state.publicScope);
+                          (setPublicScope {x = 1;})
+                          (modifyPublicScope (scope: scope // {y = 2;}))
+                          getPublicScope;
                       b = 
                         Eval.do 
-                          (modify (s: s.fmap (scope: scope // {y = 2;})))
-                          {state = get;}
-                          ({_, state}: _.pure state.publicScope);
+                          (modifyPublicScope (scope: scope // {y = 2;}))
+                          getPublicScope;
                       m = Eval.do a b;
-                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRun { actual = m; expected = {x = 1; y = 2;}; expectedScope = {x = 1; y = 2;}; };
 
-                  appendScopeDifferentBlock =
+                  _06_appendScopeDifferentBlock =
                     let 
                       a = 
                         {_}: _.do 
-                          (set (EvalState {scope = {x = 1;};}))
-                          (modify (s: s.fmap (scope: scope // {y = 2;})))
-                          {state = get; }
-                          ({_, state}: _.pure state.publicScope);
+                          (setPublicScope {x = 1;})
+                          (modifyPublicScope (scope: scope // {y = 2;}))
+                          getPublicScope;
                       m = Eval.do a;
-                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRun { actual = m; expected = {x = 1; y = 2;}; expectedScope = {x = 1; y = 2;}; };
 
-                  appendScopeDifferentBlocks =
+                  _07_appendScopeDifferentBlocks =
                     let 
-                      a = {_}: _.do (set (EvalState {scope = {x = 1;};}));
-                      b = {_}: _.do (modify (s: s.fmap (scope: scope // {y = 2;})));
-                      c = {_}: _.do 
-                        {state = get;}
-                        ({_, state}: _.pure state.publicScope);
+                      a = {_}: _.do (setPublicScope {x = 1;});
+                      b = {_}: _.do (modifyPublicScope (scope: scope // {y = 2;}));
+                      c = {_}: _.do getPublicScope;
                       m = Eval.do a b c;
-                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRun { actual = m; expected = {x = 1; y = 2;}; expectedScope = {x = 1; y = 2;}; };
 
-                  appendScopeDifferentBlocksBindNoDo =
+                  _08_appendScopeDifferentBlocksBindNoDo =
                     let 
-                      a = modify (s: s.fmap (const {x = 1;}));
-                      b = modify (s: s.fmap (scope: scope // {y = 2;}));
-                      c = {_}: (_.bind _.get).bind ({_, _a, ...}: _.pure _a.publicScope);
+                      a = setPublicScope {x = 1;};
+                      b = modifyPublicScope (scope: scope // {y = 2;});
+                      c = getPublicScope;
                       m = (((Eval.pure unit).bind a).bind b).bind c;
-                    in expectRunLegacy {} m {x = 1; y = 2;} {x = 1; y = 2;};
+                    in expectRun { actual = Eval.do m; expected = {x = 1; y = 2;}; expectedScope = {x = 1; y = 2;}; };
                 };
               };
 
@@ -1514,62 +1562,81 @@ rec {
               };
               
               _03_composes = 
-                let a = Eval.do (modify (s: s.fmap (scope: scope // {x = 1;})));
-                    b = Eval.do (modify (s: s.fmap (scope: scope // {y = 2;})));
+                let a = Eval.do (modifyPublicScope (scope: scope // {x = 1;}));
+                    b = Eval.do (modifyPublicScope (scope: scope // {y = 2;}));
                 in {
-                  scopeExists = expectRunLegacy {} a {x = 1;} unit;
+                  _00_scopeExists = expectRun { 
+                    actual = a; 
+                    expected = unit;
+                    buildExpectedScope = testScope;
+                    expectedScope = {x = 1;};
+                  };
 
-                  doBind =
-                    let c = (a.bind ({_}: b.bind ({_}: _.pure unit))).bind ({_}: _.bind _.get);
-                    in expectRunLegacy {} c {x = 1; y = 2;} (EvalState { scope = {x = 1; y = 2;};});
+                  #_01_doBind = expectRun { 
+                  #  actual = Eval.do a b;
+                  #  expected = unit;
+                  #  buildExpectedScope = testScope;
+                  #  expectedScope = {x = 1; y = 2;};
+                  #};
 
-                  doSq =
-                    let c = (a.sq b).bind ({_}: _.bind _.get);
-                    in expectRunLegacy {} c {x = 1; y = 2;} (EvalState {scope = {x = 1; y = 2;};});
+                  #_02_doSq = expectRun { 
+                  #  actual = a.sq b;
+                  #  expected = unit;
+                  #  buildExpectedScope = testScope;
+                  #  expectedScope = {x = 1; y = 2;};
+                  #};
                 };
             };
 
             _02_functions = {
               _00_foldM = {
-                empty = expectRunLegacy {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [])) {} 0;
-                single = expectRunLegacy {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [5])) {} 5;
-                multiple = expectRunLegacy {} (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])) {} 6;
+                empty = expectRun { actual = (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [])); expected = 0; };
+                single = expectRun { actual = (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [5])); expected = 5; };
+                multiple = expectRun { actual = (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])); expected = 6; };
               };
 
               _01_traverse = {
-                _00_empty = expectRunLegacy {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])) {} [];
-                _01_single = expectRunLegacy {} (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])) {} [6];
-                _02_multiple = expectRunLegacy {} (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])) {} [2 4 6];
+                _00_empty = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])); expected = []; };
+                _01_single = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])); expected = [6]; };
+                _02_multiple = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])); expected = [2 4 6]; };
                 
                 # Simple test showing get() works correctly in do-block  
-                _03_simpleGetIssue = expectRunLegacy {} (
-                  Eval.do
-                    (set (EvalState {scope = {test = "value";};}))
-                    {stateAfterSet = get;}
-                    ({_, stateAfterSet}: _.pure stateAfterSet.publicScope)
-                ) { test = "value"; } { test = "value"; };
+                _03_simpleGetIssue = expectRun {
+                  actual = (
+                    Eval.do
+                      (set (mkInitEvalState {test = "value";}))
+                      {stateAfterSet = get;}
+                      ({_, stateAfterSet}: _.pure (stateAfterSet.publicScope {}))
+                  );
+                  expected = { test = "value"; };
+                  expectedScope = { test = "value"; };
+                };
                 
                 # Test that traverse properly threads state with foldM implementation
-                _04_traverseWithState = expectRunLegacy {}
-                  (Eval.do
-                    (set (EvalState {scope = {counter = 0; seen = [];};}))
-                    {result = {_, ...}: _.traverse (x: 
-                      Eval.do
-                        {state = get;}
-                        ({_, state}: _.set (EvalState {scope = state.scope // {
-                          counter = (state.scope.counter or 0) + x;
-                          seen = (state.scope.seen or []) ++ [x];
-                        };}))
-                        ({_}: _.pure x)
-                    ) [1 2 3 4 5];}
-                    {finalState = get;}
-                    ({_, result, finalState}: _.pure {
-                      result = result;
-                      finalCounter = finalState.scope.counter;
-                    }))
-                  { counter = 15; seen = [1 2 3 4 5]; } {
-                  result = [1 2 3 4 5];
-                  finalCounter = 15;
+                _04_traverseWithState = expectRun {
+                  actual = (
+                    Eval.do
+                      (set (mkInitEvalState {counter = 0; seen = [];}))
+                      {result = {_, ...}: _.traverse (x: 
+                        Eval.do
+                          {state = get;}
+                          ({_, state}: _.set (EvalState {scope = state.scope // {
+                            counter = (state.scope.counter or 0) + x;
+                            seen = (state.scope.seen or []) ++ [x];
+                          };}))
+                          ({_}: _.pure x)
+                      ) [1 2 3 4 5];}
+                      {finalState = get;}
+                      ({_, result, finalState}: _.pure {
+                        result = result;
+                        finalCounter = finalState.scope.counter;
+                      })
+                  );
+                  expected = {
+                    result = [1 2 3 4 5];
+                    finalCounter = 15;
+                  };
+                  expectedScope = { counter = 15; seen = [1 2 3 4 5]; };
                 };
               };
             };
@@ -1595,7 +1662,42 @@ rec {
                   };
                 };
 
-              _03_putGetMany = 
+              _02_putGet = 
+                expectRun {
+                  actual =
+                    Eval.do
+                      {x = Thunk (N.string "x");}
+                      ({x, _}: force x);
+                  expected = "x";
+                  expectedThunkCache = ThunkCache {
+                    thunks = { "0" = CODE 0 "string"; };
+                    values = { "0" = "x"; };
+                    misses = 1;
+                    hits = 0;
+                    nextId = 1;
+                  };
+                };
+
+              _03_putGetGet = 
+                expectRun {
+                  actual =
+                    Eval.do
+                      {x = Thunk (N.string "x");}
+                      ({x, _}: _.do
+                        {x'0 = force x;} # Miss
+                        {x'1 = force x;} # Hit
+                        ({x'0, x'1, _}: _.pure [x'0 x'1]));
+                  expected = ["x" "x"];
+                  expectedThunkCache = ThunkCache {
+                    thunks = { "0" = CODE 0 "string"; };
+                    values = { "0" = "x"; };
+                    misses = 1;
+                    hits = 1;
+                    nextId = 1;
+                  };
+                };
+
+              _04_putGetMany = 
                 expectRun {
                   actual =
                     Eval.do
@@ -1653,33 +1755,37 @@ rec {
 
           _04_syntax = {
             _00_missingBind =
-              expectRunErrorType {}
-                (Eval.do ({a, _}: _.pure a))
-                SyntaxError;
+              expectRun {
+                actual = (Eval.do ({a, _}: _.pure a));
+                expected = SyntaxError;
+              };
             _01_missingBindNotCatchable =
-              expectRunErrorType {}
-                ((Eval.do ({a, _}: _.pure a)).catch (_e: pure "got ${_e}"))
-                SyntaxError;
+              expectRun {
+                actual = ((Eval.do ({a, _}: _.pure a)).catch (_e: pure "got ${_e}"));
+                expected = SyntaxError;
+              };
           };
 
           _05_runM = {
-            _00_simple = expectRunLegacy {}
-              (Eval.do
-                (runM (Eval.do (pure 1))))
-              {} 1;
+            _00_simple = expectRun {
+              actual = (Eval.do
+                (runM (Eval.do (pure 1))));
+              expected = 1;
+            };
 
             _01_bindingsDontLeakIntoRunM =
-              expectRunErrorType {}
-                (Eval.do
+              expectRun {
+                actual = (Eval.do
                   {a = pure 1;}
-                  (runM (Eval.do ({a, _}: _.pure a))))
-                SyntaxError;
+                  (runM (Eval.do ({a, _}: _.pure a))));
+                expected = SyntaxError;
+              };
 
             _02_scopeDoesntLeakIntoRunM =
               expectRun {
                 actual = 
                   Eval.do
-                    (setScope {a = 1;})
+                    (setPublicScope {a = 1;})
                     (runM (Eval.do 
                       {scope = {_}: _.getScope;}
                       ({scope, _}: _.pure (scope.a or null))));

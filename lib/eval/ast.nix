@@ -44,8 +44,7 @@ rec {
     {_, ...}: _.do
       (whileV 1 (_b_ ''
         evaluating parsed AST node (strict=${boolToString strict}):
-        ${""#printBoxed parsed
-        }
+        ${printBoxed parsed}
       ''))
       (if strict then toNixM parsed else toNixLazyM parsed);
 
