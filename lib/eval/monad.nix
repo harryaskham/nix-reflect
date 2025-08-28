@@ -200,13 +200,10 @@ rec {
       # Run the thunk fully and return the full monadic output {s, a}
       runWithCacheM = thunkCache: {_, ...}: _.do
         (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
-        (saveScope ({_}: _.do
-          (resetScope)
+        (_self_.do
           (setThunkCache thunkCache)
           (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
-          {a = eval.ast.evalNodeM node;}
-          {s = get;}
-          ({a, s, _}: _.pure {inherit a s;})));
+          (eval.ast.evalNodeM node)).runInitM;
     });
 
   Thunk = node:
@@ -685,14 +682,11 @@ rec {
       action = this.force {};
       run = arg: this.action.run arg;
       run_ = arg: this.action.run_ arg;
-      runEmpty = arg: this.action.runEmpty arg;
-      runEmptyM = arg: this.action.runEmptyM arg;
-      runEmpty_ = arg: this.action.runEmpty_ arg;
-      runClosure = arg: this.action.runClosure arg;
-      runClosureM = arg: this.action.runClosureM arg;
-      runWith = arg: this.action.runWith arg;
-      runWithM = arg: this.action.runWithM arg;
       runM = arg: this.action.runM arg;
+      runInitM = arg: this.action.runInitM arg;
+      runInitM_ = arg: this.action.runInitM_ arg;
+      runInit = arg: this.action.runInit arg;
+      runInit_ = arg: this.action.runInit_ arg;
       mapState = arg: this.action.mapState arg;
       setState = arg: this.action.setState arg;
       mapEither = arg: this.action.mapEither arg;
@@ -753,13 +747,14 @@ rec {
         let 
           rebind = 
             this: 
-            {A ? this.A, E ? Either Error A, s ? this.s, e ? this.e, __type ? Eval A} @ args: 
+            {A ? this.A, E ? Either Error A, s ? this.s, s' ? this.s', e ? this.e, __type ? Eval A} @ args: 
               fix (this_: 
                 this 
                 // args 
                 // mapAttrs (_: f: f this_) this.__unbound
               );
           set_s = this: s: rebind this { inherit s; };
+          set_s' = this: s': rebind this { s = const s'; inherit s'; };
           set_e = this: e: e.case {
             Left = e: set_e_Left this e;
             Right = a: set_e_Right this a;
@@ -773,6 +768,7 @@ rec {
             __toString = self: _b_ "Eval ${A} (${_ph_ self.e})";
 
             inherit S E A s e;
+            s' = s (S.mempty {});
 
             __unbound = {
               # modify :: (EvalState -> EvalState) -> Eval A -> Eval {}
@@ -784,12 +780,14 @@ rec {
                 if isLeft this.e then this else
                 void (this.setState (const state));
 
-              get = this: {_, ...}: _.pure (this.s (S.mempty {}));
+              get = this: {_, ...}: _.pure (
+                if this.strictState then this.s' else this.s (S.mempty {}));
 
-              strictState = false;
+              strictState = this: true;
               setState = this: s:
-                let state = if this.strictState then const (s (S.mempty {})) else s;
-                in set_s this s;
+                if this.strictState 
+                then let s' = s (S.mempty {}); in set_s' this s'
+                else set_s this s;
               mapState = this: f: this.setState (f this.s);
 
               setEither = this: e: set_e this e;
@@ -885,31 +883,35 @@ rec {
                 else this;
 
               # Returns (Either EvalError { a :: A, s :: S })
-              run = this: initialState: 
-                this.e.fmap (a: { s = this.s initialState; inherit a; });
+              runM = this: initialState:
+                Eval.do
+                  (set initialState)
+                  {a = this;}
+                  {s = get;}
+                  ({a, s, _}: _.pure {inherit a s;});
+              runInitM = this:
+                saveScope (
+                  this.do
+                    (resetScope)
+                    {a = this;}
+                    {s = get;}
+                    ({a, s, _}: _.pure {inherit a s;}));
+              runInitM_ = this: {_}: _.do
+                {result = this.runInitM;}
+                ({result, _}: _.pure result.a);
+              run = this: initialState:
+                (this.runM initialState).action.e;
+              runInit = this: {}:
+                (Eval.do this.runInitM).action.e;
+              runInit_ = this: {}:
+                (Eval.do this.runInitM_).action.e;
               run_ = this: _: this.e;
-              runEmpty = this: _: (this.run (S.mempty {}));
-              runEmptyM = this: {_, ...}: _.pure (this.run (S.mempty {}));
-              runEmpty_ = this: _: ((this.run (S.mempty {})).fmap (r: r.a));
-              runClosure = this: _: (this.runEmpty_ {}).unwrap;
-              runClosureM = this: {_, ...}: _.pure (this.runClosure {});
-              runWith = this: scope: thunkCache: this.run (EvalState { inherit scope thunkCache; });
-              runWithM = this: scope: thunkCache: {_}: _.pure (this.runWith scope thunkCache);
             };
           };
         # Bind 'this'
         in rebind this {};
     };
   };
-
-  runWith = scope: thunkCache: closure:
-    (closure.runWith scope thunkCache);
-
-  runWithM = scope: thunkCache: closure:
-    pure (runWith scope thunkCache closure);
-
-  runM = closure:
-    saveScope ({_}: _.do (closure));
 
   liftA2 = f: aM: bM: {_, ...}: _.liftA2 f aM bM;
   foldM = f: initAcc: xs: {_, ...}: _.foldM f initAcc xs;

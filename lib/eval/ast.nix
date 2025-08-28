@@ -829,14 +829,13 @@ rec {
 
         inherit argSpec;
 
-        asLambda = arg: ((_self_.do self.asLambdaM).runClosure {}) arg;
+        asLambda = arg: ((Eval.do self.asLambdaM).runInit_ {}) arg;
         asLambdaM = {_}: _.do
           (while "converting EvaluatedLambda to lambda")
-          ({_}: _.pure
+          {thunkCache = getThunkCache;}
+          ({thunkCache, _}: _.pure
             (arg:
-              let r = 
-                (_.do (self.applyM arg)
-                ).runClosure {};
+              let r = (Eval.do (self.applyM arg)).runInit_ {};
               in if isEvalError r then throw (_p_ r)
               else r));
 
@@ -846,9 +845,16 @@ rec {
             (while "applying EvaluatedLambda to body thunk")
             # Run the lambda body inside the self._; old state, new cache
             # and save the new lambda cache state with the body thunk.
-            (saveScope (_self_.do
-              (evalLambdaParams argSpec param arg)
-              (evalNodeM body)));
+            {thunkCache = getThunkCache;}
+            {result = {thunkCache, _}:
+              _.bind (
+                (_self_.do
+                  (setThunkCache thunkCache)
+                  (evalLambdaParams argSpec param arg)
+                  (NodeThunk body)).runInitM);}
+            ({result, _}: _.do
+              (setThunkCache result.s.thunkCache)
+              (pure result.a));
       })));
 
   # Evaluate a lambda expression
@@ -1103,7 +1109,7 @@ rec {
         _23_lambdaRecDefaults = testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
-      _00_smoke._01_lazy = solo {
+      _00_smoke._01_lazy = {
         _00_int = testRoundTripLazy "1" 1;
          _01_float = testRoundTripLazy "1.0" 1.0;
          _02_string = testRoundTripLazy ''"hello"'' "hello";
