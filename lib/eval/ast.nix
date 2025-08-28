@@ -849,7 +849,7 @@ rec {
             (while "applying EvaluatedLambda to body thunk in a runM")
             # Run the lambda body inside the self._; old state, new cache
             # and save the new lambda cache state with the body thunk.
-            (runM (_self_.do
+            (saveScope (_self_.do
               (evalLambdaParams argSpec param arg)
               (evalNodeM body)));
       })));

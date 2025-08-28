@@ -171,15 +171,6 @@ rec {
 
   isEvalError = x: x ? __isEvalError;
 
-  # Run inside the state's forcing mechanism in the case of cache miss
-  forceNoCache = x: {_, ...}:
-    if isThunk x then _.do
-      (while {_ = "forcing ${x} without cache";})
-      (x.__force)
-    else _.do
-      (while "returning value in forceNoCache against non-Thunk")
-      (pure x);
-
   # Handles forcing a thunk with current state cache and writing it back
   force = x: {_}:
     if !(isThunk x)
@@ -202,18 +193,20 @@ rec {
       inherit (node) nodeType;
       __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
 
-      # Force the thunk down to WHNF.
-      # Should only be run by forceNoCache as part of a cache miss, at most one time per thunk.
-      # TODO: Need Monad.State.Strict equivalent to avoid state being recomputed
-      # from empty every time we force a thunk.
-      # In order to persist the thunkCache after forcing a thunk, run inside
-      # a runClosure/runM action.
-      __force = {_, ...}: _.do
-        (while "forcing ${self} in __force")
-        (runM (_self_.do
-          (while "forcing '${self.nodeType}' thunk")
-          (eval.ast.evalNodeM node)
-        ));
+      # Run the thunk fully and return the full monadic output {s, a}
+      runWithCacheM = thunkCache: {_, ...}: _.do
+        (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
+        {result = 
+          pure (
+            (_self_.do
+              (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
+              (eval.ast.evalNodeM node)
+            ).runWith initScope thunkCache); }
+        ({result, _}: _.do
+          (result.case {
+            Left = liftEither;
+            Right = pure;
+          }));
     });
 
   Thunk = node:
@@ -276,43 +269,42 @@ rec {
         # TODO: ThunkCache could just hold nextId and values.
         forceThunk = thunk:
           let thunkId = thunk.thunkId;
+              thunkCache = this;
           in {_}: _.do
             (while "forcing ${thunk} in forceThunk")
-            {thunkCache = getThunkCache;}
-            ({thunkCache, _}: _.do
-              (guard (thunkCache.thunks ? ${thunkId}) (MissingThunkError ''
-                ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
-                  ${thunkCache}
-              ''))
-              (let cachedThunk = thunkCache.thunks.${thunkId};
-                in guard (thunk.nodeType == cachedThunk.nodeType) (InvalidThunkError ''
-                ThunkCache.forceThunk:
-                  Provided thunk ${thunk} has nodeType ${thunk.nodeType}
-                  Cached thunk ${cachedThunk} has nodeType ${cachedThunk.nodeType}
-              ''))
-              ({_}:
-                if thunkCache.values ? ${thunkId} then _.do
-                  (while "ThunkCache hit for ${thunk}:\n${this}")
-                  (setThunkCache (ThunkCache {
-                    inherit (thunkCache) thunks values nextId misses;
-                    hits = thunkCache.hits + 1;
-                  }))
-                  (pure thunkCache.values.${thunkId})
+            (guard (thunkCache.thunks ? ${thunkId}) (MissingThunkError ''
+              ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
+                ${thunkCache}
+            ''))
+            (let cachedThunk = thunkCache.thunks.${thunkId};
+              in guard (thunk.nodeType == cachedThunk.nodeType) (InvalidThunkError ''
+              ThunkCache.forceThunk:
+                Provided thunk ${thunk} has nodeType ${thunk.nodeType}
+                Cached thunk ${cachedThunk} has nodeType ${cachedThunk.nodeType}
+            ''))
+            ({_}:
+              if thunkCache.values ? ${thunkId} then _.do
+                (while "ThunkCache hit for ${thunk}:\n${thunkCache}")
+                (setThunkCache (ThunkCache {
+                  inherit (thunkCache) thunks values nextId misses;
+                  hits = thunkCache.hits + 1;
+                }))
+                (pure thunkCache.values.${thunkId})
 
-                else _.do
-                  (while "ThunkCache miss for ${thunk}:\n${this}")
-                  {value = forceNoCache thunk;}
-                  # Get the cache again after forcing, which may have new forced values elsewhere.
-                  {thunkCache' = getThunkCache;}
-                  ({value, thunkCache', _}: _.do
+              else _.do
+                (while "ThunkCache miss for ${thunk}:\n${thunkCache}")
+                {result = thunk.runWithCacheM thunkCache;}
+                ({result, _}:
+                  let thunkCache' = result.s.thunkCache;
+                  in _.do
                     (setThunkCache (ThunkCache {
                       inherit (thunkCache') thunks nextId hits;
                       misses = thunkCache'.misses + 1;
                       values = thunkCache'.values // { 
-                        ${thunkId} = value;
+                        ${thunkId} = result.a;
                       };
                     }))
-                    (pure value))));
+                    (pure result.a)));
       }));
   };
 
@@ -674,8 +666,8 @@ rec {
       runEmpty_ = arg: this.action.runEmpty_ arg;
       runClosure = arg: this.action.runClosure arg;
       runClosureM = arg: this.action.runClosureM arg;
-      runWithCache = arg: this.action.runWithCache arg;
-      runWithCacheM = arg: this.action.runWithCacheM arg;
+      runWith = arg: this.action.runWith arg;
+      runWithM = arg: this.action.runWithM arg;
       runM = arg: this.action.runM arg;
       mapState = arg: this.action.mapState arg;
       setState = arg: this.action.setState arg;
@@ -887,16 +879,8 @@ rec {
   runWithM = scope: thunkCache: closure:
     pure (runWith scope thunkCache closure);
 
-  runM' = closure: {_, ...}:
-    _.do
-      {thunkCache = getThunkCache;}
-      {scope = getScope;}
-      ({thunkCache, scope, _}: runWithM scope thunkCache closure);
-
   runM = closure:
-    saveScope ({_}: _.do
-      (setScope initScope)
-      (closure));
+    saveScope ({_}: _.do (closure));
 
   liftA2 = f: aM: bM: {_, ...}: _.liftA2 f aM bM;
   foldM = f: initAcc: xs: {_, ...}: _.foldM f initAcc xs;
@@ -1009,7 +993,7 @@ rec {
     thunkId = toString thunkId;
     __isThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
-    __force = collective-lib.tests.expect.anyLambda;
+    runWithCacheM = collective-lib.tests.expect.anyLambda;
   };
 
   expectEvalError = with tests; expectEvalErrorWith expect.noLambdasEq;
