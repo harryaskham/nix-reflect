@@ -25,13 +25,17 @@ function with-installable() {
   arg_name="$2"
   expr="$3"
   shift 3
-  nix eval --impure --show-trace --apply "$arg_name: $expr" ${@} $installable
+  flags=()
+  if [[ "$CLTV_TRACE_LEVEL" != "0" ]]; then
+    flags+=(--show-trace)
+  fi
+  nix eval --impure ${flags[@]} --apply "$arg_name: $expr" ${@} $installable
 }
 
 function with-lib() {
   expr="$1"
   shift 
-  with-installable ".#lib.x86_64-linux" "lib" "$expr" ${@}
+  with-installable ".#lib.x86_64-linux" "lib" "with lib; $expr" ${@}
 }
 
 function eval-expr() {
@@ -39,6 +43,7 @@ function eval-expr() {
   shift 1
   with-lib "$expr" --raw 2>&1 \
     | sed "s/trace: start_trace(\(.\+\)): /\\\\e[90m[\\1] \\\\e[0m/" \
+    | sed '/warning.*dirty/d' \
     | grep -v "^trace: end_trace$" \
     | color
 }
@@ -73,4 +78,16 @@ function debug-test() {
   else
     eval-expr "lib.$1._tests.debugOne.$2 {} {}"
   fi
+}
+
+function compare-lazy-strict() {
+  base_expr="$1"
+  shift
+  echo "Expression:"
+  echo "$base_expr"
+  for eval_fn in "lib.eval.lazy" "lib.eval.strict"; do
+    echo ""
+    echo "Evaluated via $eval_fn:"
+    timeout 5 eval-expr "$eval_fn ''${base_expr}'' " || echo "Timeout"
+  done
 }

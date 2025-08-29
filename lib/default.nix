@@ -14,7 +14,9 @@ lib.fix (self:
       };
     };
     collective-lib = collective-public.lib.${pkgs.system}.withTraceOpts {
-      traceLevel = 3;
+      traceLevel =
+        let l = builtins.getEnv "CLTV_TRACE_LEVEL";
+        in if l == "" then 0 else lib.toInt l;
     };
     nix-parsec = inputs.nix-parsec or {
       # nix eval --raw .#inputs.nix-parsec.outPath 2>/dev/null
@@ -36,5 +38,8 @@ lib.fix (self:
         inherit lib collective-lib;
         nix-reflect = self;
       };
-    })
+    }) // {
+      # Reexpose collective-lib.typed for script convenience
+      inherit (collective-lib) typed;
+    }
 )

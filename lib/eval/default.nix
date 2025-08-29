@@ -36,6 +36,7 @@ collective-lib.tests.withMergedSuites modules // {
     store = modules.store.evalStore;
   };
 
+  lazy = modules.ast.evalAST;
   strict = modules.ast.evalAST';
 
   # Throwing version of eval, discarding the Either type.
