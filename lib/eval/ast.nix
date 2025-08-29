@@ -65,7 +65,7 @@ rec {
   toNixM = x: {_}:
     let signature = toNixSignature x;
     in _.do
-      (while "Converting to strict Nix value monadically: ${signature} (${lib.typeOf x})\n  ${_p_ x}")
+      (while {_ = "Converting to strict Nix value monadically: ${signature} (${lib.typeOf x})\n  ${_p_ x}";})
       ({_}: switch signature {
         EvalError = _.liftEither x;
         Eval = throw "toNixM: Eval value ${_ph_ x} cannot be converted to Nix";
@@ -102,7 +102,7 @@ rec {
   toNixLazyM = x: {_}:
     let signature = toNixSignature x;
     in _.do
-      (while "Converting to lazy Nix value monadically: ${signature}")
+      (while {_ = "Converting to lazy Nix value monadically: ${signature}";})
       ({_}: switch signature {
         EvalError = _.liftEither x;
         Eval = _.do
@@ -187,28 +187,28 @@ rec {
       ({_, unforced}: _.bind (forceDeeply unforced));
 
   forceDeeply = x: {_, ...}: _.do
-    (while "forcing deeply")
+    (while {_ = "forcing deeply";})
     ({_}:
       if isEvaluatedLambda x then _.do
-        (while "forcing deeply: returning an EvaluatedLambda")
+        (while {_ = "forcing deeply: returning an EvaluatedLambda";})
         (pure x)
       else if isEvalError x then _.do
-        (while "forcing deeply: returning an EvalError")
+        (while {_ = "forcing deeply: returning an EvalError";})
         (pure x)
       else if isAST x then _.do
-        (while "forcing deeply: returning an AST node")
+        (while {_ = "forcing deeply: returning an AST node";})
         (pure x)
       else if isThunk x then _.do
-        (while "forcing deeply: forcing a Thunk")
+        (while {_ = "forcing deeply: forcing a Thunk";})
         {forced = force x;}
         ({forced, _}: _.do
-          (while "forcing deeply: descending into thunk contents (${getT forced}))")
+          (while {_ = "forcing deeply: descending into thunk contents (${getT forced}))";})
           (forceDeeply forced))
       else if isList x then _.do
-        (while "forcing deeply: descending into a list")
+        (while {_ = "forcing deeply: descending into a list";})
         (traverse forceDeeply x)
       else if isAttrs x then _.do
-        (while "forcing deeply: descending into an attrset")
+        (while {_ = "forcing deeply: descending into an attrset";})
         {forcedSolos =
           traverse
             (s: {_, ...}: _.do
@@ -217,14 +217,14 @@ rec {
             (solos x);}
         ({forcedSolos, _}: _.pure (mergeSolos forcedSolos))
       else _.do
-        (while "forcing deeply: returning a non-monadic value of type ${lib.typeOf x}")
+        (while {_ = "forcing deeply: returning a non-monadic value of type ${lib.typeOf x}";})
         (pure x));
 
   # Evaluate a literal value (int, float, string, etc.)
   # evalLiteral :: AST -> Eval a
   evalLiteral = node: {_, ...}:
     _.do
-      (while "evaluating 'literal' node")
+      (while {_ = "evaluating 'literal' node";})
       (pure node.value);
 
   # Evaluate a name (identifier or string)
@@ -235,7 +235,7 @@ rec {
   # force its computation at least to WHNF.
   identifierName = node: {_, ...}:
     _.do
-      (while "evaluating a name")
+      (while {_ = "evaluating a name";})
       {name = 
         if isString node then pure node
         else if node.nodeType == "identifier" then pure node.name
@@ -250,7 +250,7 @@ rec {
   # evalIdentifier :: Scope -> AST -> Eval a
   evalIdentifier = node: {_, ...}:
     _.do
-      (while "evaluating 'identifier' node")
+      (while {_ = "evaluating 'identifier' node";})
       {scope = getScope;}
       ({_, scope}: _.do
         (guard (hasAttr node.name scope || hasAttr node.name scope.__internal__.withScope) (UnknownIdentifierError ''
@@ -269,10 +269,10 @@ rec {
   # - Standard Nix values
   evalScopeValue = appendScopeF: name: value: {_, ...}:
     _.do
-      (while "evaluating value from scope")
+      (while {_ = "evaluating value from scope";})
       ({_}: 
         if isThunk value then _.do
-          (while "evaluating Thunk from scope")
+          (while {_ = "evaluating Thunk from scope";})
           # Ensure the forced value replaces the thunk for all future computations
           # TODO: Cleaner with a separate thunk store
           {forced = force value;}
@@ -281,7 +281,7 @@ rec {
             (pure forced))
 
         else if isAST value then _.do
-          (while "evaluating AST node from scope")
+          (while {_ = "evaluating AST node from scope";})
           # Evaluate once to WHNF, capturing the state but not deeply evaluating
           {evaluated = evalNodeM value;}
           ({_, evaluated}: _.do
@@ -290,26 +290,26 @@ rec {
 
           # Any monadic state should be bound to
           else if isMonadOf Eval value then _.do
-            (while "evaluating Eval value from scope")
+            (while {_ = "evaluating Eval value from scope";})
             ({_}: _.bind value)
 
           # Or just return strict values from the store.
           else _.do
-            (while "evaluating ${lib.typeOf value} from scope")
+            (while {_ = "evaluating ${lib.typeOf value} from scope";})
             (pure value));
 
   # Evaluate a list of AST nodes
   # evalList :: AST -> Eval [a]
   evalList = node: {_, ...}:
     _.do
-      (while "evaluating 'list' node")
+      (while {_ = "evaluating 'list' node";})
       (traverse Thunk node.elements);
 
   # Evaluate an assignment (name-value pair)
   # evalAssignment :: AST -> Eval [{name, value}]  
   evalAssignment = node: {_, ...}:
     _.do
-      (while "evaluating 'assignment' node")
+      (while {_ = "evaluating 'assignment' node";})
       {name = identifierName node.lhs;}
       #{value = evalNodeM node.rhs;}
       {value = Thunk node.rhs;}
@@ -319,7 +319,7 @@ rec {
   # evalAttrFrom :: Set -> AST -> Eval {name, value}  
   evalAttrFrom = from: attr: {_, ...}:
     _.do
-      (while "evaluating 'attr' node by name")
+      (while {_ = "evaluating 'attr' node by name";})
       {name = identifierName attr;}
       ({_, name}: _.do
         (guard (hasAttr name from) (MissingAttributeError ''
@@ -344,7 +344,7 @@ rec {
   # evalInherit :: AST -> Eval [{name, value}]
   evalInherit = node: {_, ...}:
     _.do
-      (while "evaluating 'inherit' node")
+      (while {_ = "evaluating 'inherit' node";})
       {source = evalInheritSourceAttrs node.from;}
       ({_, source}: _.traverse (evalAttrFrom source) node.attrs);
 
@@ -352,7 +352,7 @@ rec {
   # evalBindingList :: AST -> Eval set
   evalBindingList = bindings: {_, ...}:
     _.do
-      (while "evaluating 'bindings' node-list")
+      (while {_ = "evaluating 'bindings' node-list";})
       # Have to force here to get the list of name/value pairs
       {attrsList = traverse forceEvalNodeM bindings;}
       {attrs = {_, attrsList}: _.pure (concatLists attrsList);}
@@ -367,7 +367,7 @@ rec {
   # evalAttrs :: AST -> Eval AttrSet
   evalAttrs = node: {_, ...}:
     _.do
-      (while "evaluating 'attrs' node")
+      (while {_ = "evaluating 'attrs' node";})
       (if node.isRec 
       then saveScope (evalRecBindingList node.bindings)
       else evalBindingList node.bindings);
@@ -376,7 +376,7 @@ rec {
   # addRecBindingToScope :: AST -> Eval [{name, value}]
   addRecBindingToScope = binding: {_, ...}:
     _.do
-      (while "evaluating 'binding' node for recursive bindings")
+      (while {_ = "evaluating 'binding' node for recursive bindings";})
       # Need to force to WHNF here as we require the name/value list representation
       {attrsList = forceEvalNodeM binding;}
       ({attrsList, _}:
@@ -469,7 +469,7 @@ rec {
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r: {_}:
     _.do
-      (while "checking compatible types to ${op} op: ${_l_ compatibleTypeSets}")
+      (while {_ = "checking compatible types to ${op} op: ${_l_ compatibleTypeSets}";})
       (guard 
         (any id 
           (map 
@@ -484,7 +484,7 @@ rec {
 
   guardBinaryOp = l: op: r: {_}:
     _.do
-      (while "guarding argument types to ${op} op")
+      (while {_ = "guarding argument types to ${op} op";})
       (switch op {
         "+" = guardOneBinaryOp "+" [["int" "float"] ["string" "path"]] l r;
         "-" = guardOneBinaryOp "-" [["int" "float"]] l r;
@@ -582,7 +582,7 @@ rec {
   # evalBinaryOp :: AST -> Eval a
   evalBinaryOp = node: {_, ...}:
     _.do
-      (while "evaluating 'binaryOp' node")
+      (while {_ = "evaluating 'binaryOp' node";})
       ({_}: _.guard (elem node.op knownBinaryOps) (RuntimeError ''
         Unsupported binary operator: ${node.op}
       ''))
@@ -595,7 +595,7 @@ rec {
         else if node.op == "or" then evalOrOperation node.lhs node.rhs
 
         else {_, ...}: _.do
-          (while "evaluating binary operation LHS")
+          (while {_ = "evaluating binary operation LHS";})
           {l = forceEvalNodeM node.lhs;}
           ({_, l, ...}:
             # && operator separated out to add short-circuiting.
@@ -607,7 +607,7 @@ rec {
               ({_}:
                 if !l then _.pure false
                 else _.do
-                  (while "evaluating && RHS")
+                  (while {_ = "evaluating && RHS";})
                   {r = forceEvalNodeM node.rhs;}
                   ({r, _}: _.do
                     (guard (lib.isBool r) (TypeError (_b_ ''
@@ -625,7 +625,7 @@ rec {
               ({_}:
                 if l then _.pure true
                 else _.do
-                  (while "evaluating || RHS")
+                  (while {_ = "evaluating || RHS";})
                   {r = forceEvalNodeM node.rhs;}
                   ({r, _}: _.do
                     (guard (lib.isBool r) (TypeError (_b_ ''
@@ -636,7 +636,7 @@ rec {
 
             # All other binary operators without short-circuiting.
             else _.do
-              (while "evaluating binary operation RHS")
+              (while {_ = "evaluating binary operation RHS";})
               {r = forceEvalNodeM node.rhs;}
               ({r, _}: _.do
                 (guardBinaryOp l node.op r)
@@ -677,7 +677,7 @@ rec {
   # evalAttrPath = AST -> Eval [AST]
   evalAttrPath = node: {_, ...}:
     _.do
-      (while "evaluating 'attrPath' node")
+      (while {_ = "evaluating 'attrPath' node";})
       (pure (node.path));
 
   # Evaluate attribute access (dot operator)
@@ -686,7 +686,7 @@ rec {
   # evalAttributeAccess :: AST -> AST -> Eval a
   evalAttributeAccess = catchable: node: {_, ...}:
     _.do
-      (while "evaluating 'attribute access' node")
+      (while {_ = "evaluating 'attribute access' node";})
       {attrs = forceEvalNodeM node.lhs;}
       {path = forceEvalNodeM node.rhs;}
       ({attrs, path, _}: _.bind (traversePath catchable attrs path));
@@ -694,21 +694,21 @@ rec {
   # evalOrOperation :: AST -> AST -> Eval a
   evalOrOperation = attrAccess: default: {_}:
     _.do
-      (while "evaluating 'or' node")
+      (while {_ = "evaluating 'or' node";})
       (guard (attrAccess.nodeType == "binaryOp" && attrAccess.op == ".") (TypeError ''
         'or' must immediately follow an attribute access; got '${attrAccess.nodeType} or ...'
       ''))
       ({_}:
         (_.bind (evalAttributeAccess true attrAccess)
         ).catch (e: {_}: _.do
-          (while "Handling missing attribute in 'or' node")
+          (while {_ = "Handling missing attribute in 'or' node";})
           (guard (CatchableMissingAttributeError.check e) e)
           (evalNodeM default)));
 
   # evalUnaryOp :: AST -> Eval a
   evalUnaryOp = node: {_, ...}:
     _.do
-      (while "evaluating 'unary' node")
+      (while {_ = "evaluating 'unary' node";})
       {operand = evalNodeM node.operand;}
       ({_, operand}: _.pure (switch node.op {
         "!" = (!operand);
@@ -718,7 +718,7 @@ rec {
   # evalConditional :: AST -> Eval a
   evalConditional = node: {_, ...}:
     _.do
-      (while "evaluating 'conditional' node")
+      (while {_ = "evaluating 'conditional' node";})
       {cond = forceEvalNodeM node.cond;}
       ({_, cond}: _.do
         (guard (lib.isBool cond) (TypeError ''
@@ -737,7 +737,7 @@ rec {
   # evalLambdaParams :: {argName = {default = AST | null;}} -> AST -> Thunk -> Eval Scope
   evalLambdaParams = argSpec: param: arg_: {_, ...}:
     _.do
-      (while "evaluating 'lambda' parameters")
+      (while {_ = "evaluating 'lambda' parameters";})
       {arg = force arg_;}
       ({_, arg}:
         switch param.nodeType {
@@ -818,7 +818,7 @@ rec {
   isEvaluatedLambda = x: x ? __isEvaluatedLambda;
   EvaluatedLambda = param: body: {_, ...}: 
     let _self_ = _; in _.do
-      (while "building 'EvaluatedLambda'")
+      (while {_ = "building 'EvaluatedLambda'";})
       # Immediately construct thunkified args, which will capture the state of the
       # defining scope correctly for defaults.
       {argSpec = lambdaArgSpec param;}
@@ -831,7 +831,7 @@ rec {
 
         asLambda = arg: ((Eval.do self.asLambdaM).runInit_ {}) arg;
         asLambdaM = {_}: _.do
-          (while "converting EvaluatedLambda to lambda")
+          (while {_ = "converting EvaluatedLambda to lambda";})
           {thunkCache = getThunkCache;}
           ({thunkCache, _}: _.pure
             (arg:
@@ -842,7 +842,7 @@ rec {
         # Apply the lambda monadically, updating and accessing the thunk cache.
         applyM = arg: {_}:
           _.do
-            (while "applying EvaluatedLambda to body thunk")
+            (while {_ = "applying EvaluatedLambda to body thunk";})
             # Run the lambda body inside the self._; old state, new cache
             # and save the new lambda cache state with the body thunk.
             {thunkCache = getThunkCache;}
@@ -861,7 +861,7 @@ rec {
   # evalLambda :: AST -> Eval EvaluatedLambda
   evalLambda = node: {_, ...}:
     _.do
-      (while "evaluating 'lambda' node")
+      (while {_ = "evaluating 'lambda' node";})
       (EvaluatedLambda node.param node.body);
 
   isApplicable = x: builtins.isFunction x || x ? __functor || isEvaluatedLambda x;
@@ -885,7 +885,7 @@ rec {
   # apply1 :: (EvaluatedLambda | function) -> (Thunk | a) -> Eval b
   apply1 = func_: arg: {_, ...}:
     _.do
-      (while "applying function to pre-evaluated argument")
+      (while {_ = "applying function to pre-evaluated argument";})
       {func = force func_;}
       ({func, _}: _.do
         (guardApplicable func)
@@ -898,7 +898,7 @@ rec {
           # Otherwise, just apply the function to the argument.
           # This should only trigger for pure Nix functions i.e. builtins from the core language / lib
           else {_}: _.do
-            (while "applying function as a Nix lambda to a Nix value")
+            (while {_ = "applying function as a Nix lambda to a Nix value";})
             {nixArg = toNixM arg;}
             ({nixArg, _}: _.pure (func nixArg))));
 
@@ -907,7 +907,7 @@ rec {
   # apply1Node :: (EvaluatedLambda | function) -> AST -> Eval a
   apply1Node = func: argNode: {_, ...}:
     _.do
-      (while "applying function to unevaluated argument")
+      (while {_ = "applying function to unevaluated argument";})
       {arg = Thunk argNode;}
       ({arg, _}: _.bind (apply1 func arg));
 
@@ -915,7 +915,7 @@ rec {
   # evalApplication :: AST -> Eval a
   evalApplication = node: {_, ...}:
     _.do
-      (while "evaluating 'application' node")
+      (while {_ = "evaluating 'application' node";})
       {func = forceEvalNodeM node.func;}
       ({_, func, ...}: _.do
         (guardApplicable func)
@@ -925,7 +925,7 @@ rec {
   # evalLetIn :: AST -> Eval a
   evalLetIn = node: {_}: 
     _.do
-      (while "evaluating 'letIn' node")
+      (while {_ = "evaluating 'letIn' node";})
       (saveScope ({_}: _.do
         (evalRecBindingList node.bindings)
         (evalNodeM node.body)));
@@ -934,7 +934,7 @@ rec {
   # evalWith :: AST -> Eval a
   evalWith = node: {_}:
     _.do
-      (while "evaluating 'with' node")
+      (while {_ = "evaluating 'with' node";})
       # Env as an attrset in WHNF
       {env = forceEvalNodeM node.env;}
       ({_, env}: _.saveScope ({_}: _.do
@@ -949,7 +949,7 @@ rec {
   # evalAssert :: AST -> Eval a
   evalAssert = node: {_, ...}:
     _.do
-      (while "evaluating 'assert' node")
+      (while {_ = "evaluating 'assert' node";})
       {cond = evalNodeM node.cond;}
       ({_, cond}: _.guard (lib.isBool cond) (TypeError ''
         assert: got non-bool condition of type ${typeOf cond}:
@@ -965,7 +965,7 @@ rec {
   # evalAbort :: Scope -> AST -> Eval a
   evalAbort = node: {_, ...}:
     _.do
-      (while "evaluating 'abort' node")
+      (while {_ = "evaluating 'abort' node";})
       {msg = evalNodeM node.msg;}
       ({_, msg}: _.guard (lib.isString msg) (TypeError ''
         abort: got non-string message of type ${typeOf msg}:
@@ -977,7 +977,7 @@ rec {
   # evalThrow :: Scope -> AST -> Eval a
   evalThrow = node: {_, ...}:
     _.do
-      (while "evaluating 'throw' node")
+      (while {_ = "evaluating 'throw' node";})
       {msg = evalNodeM node.msg; }
       ({_, msg}: _.guard (lib.isString msg) (TypeError ''
         throw: got non-string message of type ${typeOf msg}:
@@ -989,7 +989,7 @@ rec {
   # evalImport :: Scope -> AST -> Eval a
   evalImport = node: {_, ...}:
     _.do
-      (while "evaluating 'import' node")
+      (while {_ = "evaluating 'import' node";})
       {path = evalNodeM node.path;}
       ({_, path}: _.guard (lib.isString path || lib.isPath path) (TypeError ''
         import: got non-string or path message of type ${typeOf path}:
@@ -1024,14 +1024,14 @@ rec {
 
   evalInterpolation = node: {_}:
     _.do
-      (while "evaluating 'interpolation' node")
+      (while {_ = "evaluating 'interpolation' node";})
       {value = forceEvalNodeM node.body;}
       ({value, _}: _.bind (coerceToString value));
 
   # TODO: This needs to operate as a closure
   evalStringPieces = node: {_, ...}:
     _.do
-      (while "evaluating 'stringPieces' node")
+      (while {_ = "evaluating 'stringPieces' node";})
       {pieces = traverse evalNodeM node.pieces;}
       ({_, pieces}:
         let s = join pieces;
@@ -1042,13 +1042,13 @@ rec {
   # TODO: Fix parser so that Path is just a wrapper round stringPieces to enable interpolation in the path
   evalPath = node: {_, ...}:
     _.do
-      (while "evaluating 'path' node")
+      (while {_ = "evaluating 'path' node";})
       {state = get;}
       ({state, _}: _.pure (stringToPath_ state.scope.PWD state.scope.HOME node.value));
 
   evalAnglePath = node: {_, ...}:
     _.do
-      (while "evaluating 'anglePath' node")
+      (while {_ = "evaluating 'anglePath' node";})
       {scope = getScope;}
       ({_, scope}:
         let path = splitSep "/" node.value;

@@ -179,7 +179,7 @@ rec {
   force = x: {_}:
     if !(isThunk x)
       then _.do
-        (while "not forcing a non-thunk of type ${lib.typeOf x}")
+        (while {_ = "not forcing a non-thunk of type ${lib.typeOf x}";})
         (pure x)
       else _.do
         (while {_ = "forcing ${x} via thunk cache";})
@@ -199,10 +199,10 @@ rec {
 
       # Run the thunk fully and return the full monadic output {s, a}
       runWithCacheM = thunkCache: {_, ...}: _.do
-        (while "forcing ${self} in runWithCacheM with cache:\n${thunkCache}")
+        (while {_ = "forcing ${self} in runWithCacheM with cache:\n${thunkCache}";})
         (_self_.do
           (setThunkCache thunkCache)
-          (while "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}")
+          (while {_ = "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}";})
           (eval.ast.evalNodeM node)).runInitM;
     });
 
@@ -210,11 +210,11 @@ rec {
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
     if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
     else {_}: _.do
-      (while "constructing '${node.nodeType}' Thunk")
+      (while {_ = "constructing '${node.nodeType}' Thunk";})
       {thunkCache = getThunkCache;}
       {thunk = {thunkCache, _}: _.bind (thunkCache.cacheNode node);}
       ({thunk, _}: _.do 
-        (while "returning constructed ${thunk}")
+        (while {_ = "returning constructed ${thunk}";})
         (pure thunk));
 
   ThunkCache = {
@@ -272,7 +272,7 @@ rec {
           let thunkId = thunk.thunkId;
               thunkCache = this;
           in {_}: _.do
-            (while "forcing ${thunk} in forceThunk")
+            (while {_ = "forcing ${thunk} in forceThunk";})
             (guard (thunkCache.thunks ? ${thunkId}) (MissingThunkError ''
               ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
                 ${thunkCache}
@@ -285,7 +285,7 @@ rec {
             ''))
             ({_}:
               if thunkCache.values ? ${thunkId} then _.do
-                (while "ThunkCache hit for ${thunk}:\n${thunkCache}")
+                (while {_ = "ThunkCache hit for ${thunk}:\n${thunkCache}";})
                 (setThunkCache (ThunkCache {
                   inherit (thunkCache) thunks values nextId misses;
                   hits = thunkCache.hits + 1;
@@ -293,7 +293,7 @@ rec {
                 (pure thunkCache.values.${thunkId})
 
               else _.do
-                (while "ThunkCache miss for ${thunk}:\n${thunkCache}")
+                (while {_ = "ThunkCache miss for ${thunk}:\n${thunkCache}";})
                 {result = thunk.runWithCacheM thunkCache;}
                 ({result, _}:
                   let thunkCache' = result.s.thunkCache;
@@ -355,7 +355,7 @@ rec {
         initScope = {}: self;
         initScopeM = {_}: _.pure self;
         resetScopeM = {_}: _.do
-          (while "resetting scope")
+          (while {_ = "resetting scope";})
           (setScope self);
       };
     });
@@ -827,8 +827,8 @@ rec {
                   if isAttrs s_ then _b_ (with ansi; ''
                     ${style [fg.grey] "@"} ${
                       let p = (debuglib.pos.file s_)._;
-                      in "${atom.path p.file}:${atom.number (toString p.line)}:${atom.number (toString p.column)}"}
-                        ${_h_ ("↳ │ " + (_ls_ (mapTailLines (line: "  │ ${line}") (s_._))))}
+                      in "${atom.path p.file}:${style [fg.grey] (toString p.line)}"}
+                        ${_h_ ((style [fg.grey] "↳ │ ") + (_ls_ (mapTailLines (line: "  ${style [fg.grey] "│"} ${line}") (s_._))))}
                   '')
                   else s_;
                 # Add the stack logging to the monadic value itself
@@ -924,19 +924,19 @@ rec {
 
   getThunkCache = {_, ...}:
     _.do
-      (while "getting thunk cache")
+      (while {_ = "getting thunk cache";})
       {state = get;}
       ({_, state}: _.pure state.thunkCache);
 
   setThunkCache = thunkCache: {_, ...}:
     _.do
-      (while "setting thunk cache:\n${thunkCache}")
+      (while {_ = "setting thunk cache:\n${thunkCache}";})
       {state = get;}
       ({_, state}: _.set (EvalState {inherit (state) scope; inherit thunkCache;}));
 
   saveScope = f: {_, ...}:
     _.do
-      (while "with saved scope")
+      (while {_ = "with saved scope";})
       {scope = getScope;}
       {a = f;}
       ({_, scope, a, ...}: _.do
@@ -945,7 +945,7 @@ rec {
 
   setScope = scope: {_, ...}:
     _.do
-      (while "setting scope")
+      (while {_ = "setting scope";})
       {state = get;}
       ({state, _}: _.set (EvalState {inherit scope; inherit (state) thunkCache;}));
 
@@ -957,7 +957,7 @@ rec {
 
   setPublicScope = scope: {_, ...}:
     _.do
-      (while "setting public scope")
+      (while {_ = "setting public scope";})
       (guardScopeUpdate scope)
       {state = get;}
       ({state, _}: _.set (EvalState {
@@ -967,57 +967,57 @@ rec {
   
   modifyScope = f: {_, ...}:
     _.do
-      (while "modifying scope")
+      (while {_ = "modifying scope";})
       (modify (s: s.fmap f));
 
   modifyPublicScope = f: {_, ...}:
     _.do
-      (while "modifying public scope")
+      (while {_ = "modifying public scope";})
       (modifyScope (scope: f scope // {inherit (scope) __internal__;}));
 
   getScope = {_, ...}:
     _.do
-      (while "getting scope")
+      (while {_ = "getting scope";})
       {state = get;}
       ({_, state}: _.pure state.scope);
 
   getPublicScope = {_, ...}:
     _.do
-      (while "getting public scope")
+      (while {_ = "getting public scope";})
       {state = get;}
       ({_, state}: _.pure (state.publicScope {}));
 
   prependScope = newScope: {_, ...}:
     _.do
-      (while "prepending scope")
+      (while {_ = "prepending scope";})
       (guardScopeUpdate newScope)
       (modifyScope (scope: newScope // scope));
 
   prependScopeM = newScopeM: {_, ...}:
     _.do
-      (while "prepending monadic scope")
+      (while {_ = "prepending monadic scope";})
       {newScope = newScopeM;}
       ({_, newScope}: _.prependScope newScope);
 
   appendScope = newScope: {_, ...}:
     _.do
-      (while "appending scope")
+      (while {_ = "appending scope";})
       (guardScopeUpdate newScope)
       (modifyScope (scope: scope // newScope));
 
   appendScopeM = newScopeM: {_, ...}:
     _.do
-      (while "appending monadic scope")
+      (while {_ = "appending monadic scope";})
       {newScope = newScopeM;}
       ({_, newScope}: _.appendScope newScope);
 
   getWithScope = {_}: _.do
-    (while "getting 'with' scope")
+    (while {_ = "getting 'with' scope";})
     {scope = getScope;}
     ({scope, _}: _.pure scope.__internal__.withScope);
 
   setWithScope = withScope: {_}: _.do
-    (while "setting 'with' scope")
+    (while {_ = "setting 'with' scope";})
     {scope = getScope;}
     ({scope, _}: _.setScope (scope // {
       __internal__ = scope.__internal__ // { 
@@ -1026,7 +1026,7 @@ rec {
     }));
 
   appendWithScope = withScope: {_}: _.do
-    (while "appending 'with' scope")
+    (while {_ = "appending 'with' scope";})
     {scope = getScope;}
     ({scope, _}: _.setScope (scope // {
       __internal__ = scope.__internal__ // { 
