@@ -435,7 +435,8 @@ rec {
       (traverse storeRecAssignmentNode assignmentNodes)
       # rec-inherits could refer to any of the assigned nodes
       (traverse storeRecInheritNode inheritNodes)
-      # Then the Thunks, with the AST as fallback on first pass
+      # Then the Thunks in two passes, so each sees a thunk at each other key.
+      # TODO: This will result 2x re-evaluation.
       (traverse storeRecAssignmentAction assignmentNodes);
 
   # Evaluate a list of recursive bindings
@@ -450,21 +451,6 @@ rec {
       {attrsSets = traverse addRecBindingToScope bindings;}
       # Merge these, letting any errors propagate. Any missing identifier here is a true error.
       ({attrsSets, _}: _.pure (mergeAttrsList attrsSets));
-
-  # Type-check binary operation operands
-  # checkBinaryOpTypes :: String -> [TypeSet] -> a -> a -> Eval Unit
-  checkBinaryOpTypes = op: compatibleTypeSets: l: r: result:
-    if any id 
-      (map 
-        (typeSet: elem (lib.typeOf l) typeSet && elem (lib.typeOf r) typeSet)
-        compatibleTypeSets)
-    then Eval.pure result
-    else Eval.throws (TypeError (''Incorrect types for binary operator ${op}:
-
-      ${_ph_ l} and ${_ph_ r}
-      
-      (expected one of ${_l_ compatibleTypeSets})
-    ''));
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r: {_}:
     _.do
@@ -484,7 +470,7 @@ rec {
   guardBinaryOp = l: op: r: {_}:
     _.do
       (while {_ = "guarding argument types to ${op} op";})
-      (switch op {
+      ({_}: _.bind (switch op {
         "+" = guardOneBinaryOp "+" [["int" "float"] ["string" "path"]] l r;
         "-" = guardOneBinaryOp "-" [["int" "float"]] l r;
         "*" = guardOneBinaryOp "*" [["int" "float"]] l r;
@@ -497,12 +483,12 @@ rec {
         ">" = guardOneBinaryOp ">" [["int" "float"] ["string"] ["path"] ["list"]] l r;
         "<=" = guardOneBinaryOp "<=" [["int" "float"] ["string"] ["path"] ["list"]] l r;
         ">=" = guardOneBinaryOp ">=" [["int" "float"] ["string"] ["path"] ["list"]] l r;
-      });
+      }));
 
   runBinaryOp = l: op: r: {_}:
     _.do
       (guardBinaryOp l op r)
-      (switch op {
+      ({_}: _.bind (switch op {
         "+" = apply2 (l: r: l + r) l r;
         "-" = apply2 (l: r: l - r) l r;
         "*" = apply2 (l: r: l * r) l r;
@@ -515,7 +501,7 @@ rec {
         ">" = apply2 (l: r: l > r) l r;
         "<=" = apply2 (l: r: l <= r) l r;
         ">=" = apply2 (l: r: l >= r) l r;
-      });
+      }));
 
   runBinaryOpListwise = ls: op: rs: {_}:
     let lSnoc = maybeSnoc ls;
@@ -839,41 +825,44 @@ rec {
 
         inherit argSpec;
 
-        asLambda = arg: ((Eval.do self.asLambdaM).runInit_ {}) arg;
+        asLambda = 
+          let 
+            toNix = x: ((Eval.do (toNixM x)).run_ {}).case {
+              Left = throw;
+              Right = x: 
+                if (isMonadOf Eval x || isAST x || isThunk x || isEvaluatedLambda x) 
+                then toNix x
+                else x;
+            };
+          in arg: ((_self_.do self.applyM arg).run_ {}).case {
+            Left = throw;
+            Right = toNix;
+          };
+
         asLambdaM = {_}: _.do
           (while {_ = "converting ${self} to Nix lambda";})
-          (pure
-            (arg:
-              let r = (Eval.do (self.applyM arg)).runInit_ {};
-              in if isEvalError r then throw (_p_ r)
-              else r));
+          (pure (arg: self.asLambda arg));
+
+        # Apply the lambda monadically, updating and accessing the thunk cache.
+        applyMWithCache = thunkCache: arg: {_}:
+          _.do
+            (while {_ = "applying ${self} to argument ${_p_ arg} with cache:\n${thunkCache}";})
+            {lambdaScope = evalLambdaParams argSpec param arg;}
+            ({lambdaScope, _}: _.saveScope (_self_.do
+              (while {_ = "applying ${self} to argument ${_p_ arg} with new scope ${_p_ lambdaScope}";})
+              (appendScope lambdaScope)
+              (setThunkCache thunkCache)
+              (evalNodeM body)));
 
         # Apply the lambda monadically, updating and accessing the thunk cache.
         applyM = arg: {_}:
           _.do
-            (while {_ = "applying ${self} to argument ${_p_ arg}";})
+            (while {_ = "applying ${self} to argument ${_p_ arg} without cache update";})
             {lambdaScope = evalLambdaParams argSpec param arg;}
-            {thunkCache = getThunkCache;}
-            ({lambdaScope, thunkCache, _}: _.saveScope (_self_.do
+            ({lambdaScope, _}: _.saveScope (_self_.do
               (while {_ = "applying ${self} to argument ${_p_ arg} with new scope ${_p_ lambdaScope}";})
-              # Run the lambda body inside the self._; old state, new cache
-              # and save the new lambda cache state with the body thunk.
-              #{thunkCache = getThunkCache;}
-              #{result = {thunkCache, _}:
-              #  _.bind (
-              #    (_self_.do
-              #      (setThunkCache thunkCache)
-              #      (evalLambdaParams argSpec param arg)
-              #      (NodeThunk body)).runInitM);}
-              #{thunkCache = getThunkCache;}
-              #({thunkCache, _}: _.bind (Eval.do
-              (while {_ = "thunkifying ${self} body with new scope:\n${_p_ lambdaScope}";})
               (appendScope lambdaScope)
-              (setThunkCache thunkCache)
               (evalNodeM body)));
-            #({result, _}: _.do
-            #  (setThunkCache result.s.thunkCache)
-            #  (pure result.a));
       })));
 
   # Evaluate a lambda expression

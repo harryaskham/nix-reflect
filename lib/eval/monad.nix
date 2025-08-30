@@ -198,18 +198,23 @@ rec {
       __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
 
       # Run the thunk fully and return the full monadic output {s, a}
-      runWithCacheM = thunkCache: (_self_.do
-        (while {_ = "forcing ${self} in runWithCacheM with cache:\n${thunkCache}";})
-        (setThunkCache thunkCache)
-        (while {_ = "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}";})
-        (eval.ast.evalNodeM node)).runInitM;
+      # TODO: ThunkCache should actually be something global to the runner;
+      # having it in the state is causing problems
+      runWithCacheM = thunkCache: {_}:
+        _.saveScope (_self_.do
+          (while {_ = "forcing ${self} in runWithCacheM with cache:\n${thunkCache}";})
+          (setThunkCache thunkCache)
+          (eval.ast.forceEvalNodeM node));
+      runWithoutCacheM = {_}:
+        _.saveScope (_self_.do
+          (while {_ = "forcing ${self} in runWithoutCacheM";})
+          (eval.ast.forceEvalNodeM node));
     });
 
   Thunk = node:
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
-    #if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
-    #else {_}: _.do
-    {_}: _.do
+    if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
+    else {_}: _.do
       (while {_ = "constructing '${node.nodeType}' Thunk";})
       {thunkCache = getThunkCache;}
       {thunk = {thunkCache, _}: _.bind (thunkCache.cacheNode node);}
@@ -301,18 +306,27 @@ rec {
                     ${thunkCache}
                   ''; 
                 })
-                {result = thunk.runWithCacheM thunkCache;}
-                ({result, _}:
-                  let thunkCache' = result.s.thunkCache;
-                  in _.do
-                    (setThunkCache (ThunkCache {
-                      inherit (thunkCache') thunks nextId hits;
-                      misses = thunkCache'.misses + 1;
-                      values = thunkCache'.values // { 
-                        ${thunkId} = result.a;
-                      };
-                    }))
-                    (pure result.a)));
+                #{value = thunk.runWithCacheM thunkCache;}
+                {value = thunk.runWithoutCacheM;}
+                ({value, _}: _.do
+                  (setThunkCache (ThunkCache {
+                    inherit (thunkCache) thunks nextId hits;
+                    misses = thunkCache.misses + 1;
+                    values = thunkCache.values // { 
+                      ${thunkId} = value;
+                    };
+                  }))
+                  (pure value)));
+                  #let thunkCache' = result.s.thunkCache;
+                  #in _.do
+                  #  (setThunkCache (ThunkCache {
+                  #    inherit (thunkCache') thunks nextId hits;
+                  #    misses = thunkCache'.misses + 1;
+                  #    values = thunkCache'.values // { 
+                  #      ${thunkId} = result.a;
+                  #    };
+                  #  }))
+                  #  (pure result.a)));
       }));
   };
 
@@ -1081,6 +1095,7 @@ rec {
     __isThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
     runWithCacheM = collective-lib.tests.expect.anyLambda;
+    runWithoutCacheM = collective-lib.tests.expect.anyLambda;
   };
 
   expectEvalError = with tests; expectEvalErrorWith expect.noLambdasEq;
