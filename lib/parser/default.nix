@@ -782,7 +782,7 @@ let this = rec {
   # Parse a string down to an AST, or leave an AST untouched.
   # Throw if not a string or AST, or if the parse fails.
   parse = x:
-    with (log.v 1).call "parse" x ___;
+    with (log.v 2).call "parse" x ___;
     return (flip dispatch x {
       string = s:
         let result = parseExpr s;

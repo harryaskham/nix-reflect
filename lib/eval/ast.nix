@@ -42,14 +42,14 @@ rec {
     let parsed = parse expr;
     in with (log.v 1).call "evalM" strict expr ___;
     {_, ...}: _.do
-      (whileV 1 (_b_ ''
+      (whileV 2 (_b_ ''
         evaluating parsed AST node (strict=${boolToString strict}):
         ${printBoxed parsed}
       ''))
       {result = if strict then toNixM parsed else toNixLazyM parsed;}
       {state = get;}
       ({result, state, _}: _.do
-        (whileV 3 (_b_ ''
+        (whileV 1 (_b_ ''
           returning evaluation result:
           ${_ph_ result}
 
@@ -437,6 +437,7 @@ rec {
       (traverse storeRecInheritNode inheritNodes)
       # Then the Thunks in two passes, so each sees a thunk at each other key.
       # TODO: This will result 2x re-evaluation.
+      #(traverse storeRecAssignmentAction assignmentNodes)
       (traverse storeRecAssignmentAction assignmentNodes);
 
   # Evaluate a list of recursive bindings
