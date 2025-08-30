@@ -198,18 +198,18 @@ rec {
       __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
 
       # Run the thunk fully and return the full monadic output {s, a}
-      runWithCacheM = thunkCache: {_, ...}: _.do
+      runWithCacheM = thunkCache: (_self_.do
         (while {_ = "forcing ${self} in runWithCacheM with cache:\n${thunkCache}";})
-        (_self_.do
-          (setThunkCache thunkCache)
-          (while {_ = "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}";})
-          (eval.ast.evalNodeM node)).runInitM;
+        (setThunkCache thunkCache)
+        (while {_ = "forcing '${self.nodeType}' thunk with inherited cache:\n${thunkCache}";})
+        (eval.ast.evalNodeM node)).runInitM;
     });
 
   Thunk = node:
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
-    if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
-    else {_}: _.do
+    #if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
+    #else {_}: _.do
+    {_}: _.do
       (while {_ = "constructing '${node.nodeType}' Thunk";})
       {thunkCache = getThunkCache;}
       {thunk = {thunkCache, _}: _.bind (thunkCache.cacheNode node);}
@@ -252,6 +252,8 @@ rec {
         '';
 
         # Cache and return the thunk that evaluates the node.
+        # TODO: Need a thunk ID ordering that is not based on evaluation order
+        # so that caches can be passed backwards in time.
         cacheNode = node: {_}:
           let 
             thunkId = toString this.nextId;
@@ -290,10 +292,15 @@ rec {
                   inherit (thunkCache) thunks values nextId misses;
                   hits = thunkCache.hits + 1;
                 }))
-                (pure thunkCache.values.${thunkId})
+                (pure thunkCache.values.${thunkId} )
 
               else _.do
-                (while {_ = "ThunkCache miss for ${thunk}:\n${thunkCache}";})
+                (while { 
+                  _ = ''
+                    ThunkCache miss for ${thunk}
+                    ${thunkCache}
+                  ''; 
+                })
                 {result = thunk.runWithCacheM thunkCache;}
                 ({result, _}:
                   let thunkCache' = result.s.thunkCache;
@@ -687,6 +694,7 @@ rec {
       runInitM_ = arg: this.action.runInitM_ arg;
       runInit = arg: this.action.runInit arg;
       runInit_ = arg: this.action.runInit_ arg;
+      getValueM = arg: this.action.getValueM arg;
       mapState = arg: this.action.mapState arg;
       setState = arg: this.action.setState arg;
       mapEither = arg: this.action.mapEither arg;
@@ -854,6 +862,16 @@ rec {
                   (this.pure [])
                   xs;
 
+              traverseAttrs = this: f: xs: {_, ...}:
+                _.do
+                  {ss =
+                    traverse
+                      (x: {_, ...}: _.do
+                        {value = f (soloValue x);}
+                        ({value, _}: _.pure { ${soloName s} = value;}))
+                      (solos xs);}
+                  ({ss, _}: _.pure (mergeSolos ss));
+
               bind = this: statement: 
                 this.e.case {
                   Left = _: this;
@@ -889,13 +907,14 @@ rec {
                   {a = this;}
                   {s = get;}
                   ({a, s, _}: _.pure {inherit a s;});
-              runInitM = this:
-                saveScope (
-                  this.do
-                    (resetScope)
-                    {a = this;}
-                    {s = get;}
-                    ({a, s, _}: _.pure {inherit a s;}));
+              runInitM = this: {_, ...}:
+                _.do
+                  ({_}: _.saveScope (
+                    this.do
+                      (resetScope)
+                      {a = this;}
+                      {s = get;}
+                      ({a, s, _}: _.pure {inherit a s;})));
               runInitM_ = this: {_}: _.do
                 {result = this.runInitM;}
                 ({result, _}: _.pure result.a);
@@ -906,6 +925,13 @@ rec {
               runInit_ = this: {}:
                 (Eval.do this.runInitM_).action.e;
               run_ = this: _: this.e;
+              getValueM = this: {_, ...}:
+                _.bind
+                  ({_}: ((this.run_ {}).case {
+                    Left = _.liftEither;
+                    Right = _.pure;
+                  }));
+
             };
           };
         # Bind 'this'
@@ -916,6 +942,7 @@ rec {
   liftA2 = f: aM: bM: {_, ...}: _.liftA2 f aM bM;
   foldM = f: initAcc: xs: {_, ...}: _.foldM f initAcc xs;
   traverse = f: xs: {_, ...}: _.traverse f xs;
+  traverseAttrs = f: xs: {_, ...}: _.traverseAttrs f xs;
 
   get = {_, ...}: _.bind _.get;
   set = state: {_, ...}: _.set state;
@@ -933,6 +960,12 @@ rec {
       (while {_ = "setting thunk cache:\n${thunkCache}";})
       {state = get;}
       ({_, state}: _.set (EvalState {inherit (state) scope; inherit thunkCache;}));
+
+  extendThunkCache = thunkCache: {_, ...}:
+    _.do
+      (while {_ = "extending thunk cache with :\n${thunkCache}";})
+      {state = get;}
+      ({_, state}: _.set (EvalState {inherit (state) scope; thunkCache = state.thunkCache.extend thunkCache;}));
 
   saveScope = f: {_, ...}:
     _.do
