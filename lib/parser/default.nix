@@ -114,42 +114,42 @@ let this = rec {
 
   boxes = {
     single = {
-      space = "  ";
-      vline = "│ ";
-      hline = "─";
-      knee = "└─";
-      tee = "├─";
+      space = StringW 2 "  ";
+      vline = StringW 2 "│ ";
+      hline = StringW 2 "─";
+      knee = StringW 2 "└─";
+      tee = StringW 2 "├─";
       prefixBlock = false;
     };
     double = {
-      space = "  ";
-      vline = "║ ";
-      hline = "═";
-      knee = "╚═";
-      tee = "╠═";
+      space = StringW 2 "  ";
+      vline = StringW 2 "║ ";
+      hline = StringW 2 "═";
+      knee = StringW 2 "╚═";
+      tee = StringW 2 "╠═";
       prefixBlock = true;
     };
     setEl = maxKeyLen: k: 
       let kSpace = spaces maxKeyLen;
-          kSpaced = "${spaces (maxKeyLen - size k)}${k}";
+          kSpaced = Strings [(spaces (maxKeyLen - size k)) k];
       in {
-        space = " ${kSpace} │";
-        vline = " ${kSpace} │";
-        hline = "═";
-        knee = " ${kSpaced} ╪";
-        tee = " ${kSpaced} ╪";
+        space = StringW (3 + maxKeyLen)" ${kSpace} │";
+        vline = StringW (3 + maxKeyLen)" ${kSpace} │";
+        hline = StringW 1 "═";
+        knee = StringW (3 + width kSpaced) " ${kSpaced} ╪";
+        tee = StringW (3 + width kSpaced) " ${kSpaced} ╪";
         prefixBlock = true;
       };
     listEl = maxI: i_: 
       let i = toString i_;
           iSpace = spaces maxI;
-          iSpaced = "${spaces (maxI - size i)}${i}";
+          iSpaced = Strings [(spaces (maxI - size i)) i];
       in {
-        space = "${iSpace}┆";
-        vline = "${iSpace}┆";
-        hline = "═";
-        knee = "${iSpaced}┆";
-        tee = "${iSpaced}┆";
+        space = StringW (1 + maxI) "${iSpace}┆";
+        vline = StringW (1 + maxI) "${iSpace}┆";
+        hline = StringW 1 "═";
+        knee = StringW (1 + width iSpaced) "${iSpaced}┆";
+        tee = StringW (1 + width iSpaced) "${iSpaced}┆";
         prefixBlock = true;
       };
   };
@@ -159,7 +159,7 @@ let this = rec {
     log.while "printing AST node ${node.nodeType or "<unnamed>"}" (
     let blocks = toNodeBlocks node;
         nBlocks = size blocks;
-    in _ls_ (ifor blocks (blockIx: { name ? null, body, box }:
+    in ifor blocks (blockIx: { name ? null, body, box }:
       with box;
       let 
         maybeNonEmpties = if sparse then id else nonEmpties;
@@ -185,19 +185,23 @@ let this = rec {
           if i == 0 then blockPrefix.first 
           else if i == nLines - 1 then blockPrefix.last
           else blockPrefix.mid;
-      in _ls_ (ifor lines (i: l: "${prefix}${space}${linePrefix i} ${l}"))))
-    );
+      in 
+        Strings 
+          (ifor lines (i: l: Strings
+            [ prefix space (linePrefix i) l "\n" ]
+          ))
+    ));
 
   printAST = printAST_ true true "";
   printASTCompact = printAST_ false true "";
-  printAST_ = sparse: isRoot: prefix: 
+  printAST_ = sparse: isRoot: prefix: node:
     with boxes.single;
-    dispatch.def.on signatureAST (x: "${prefix}${space}${knee}${_p_ x}") {
+    toString (dispatch.def.on signatureAST (x: Strings [prefix space knee (_p_ x)]) {
       AST = printNode sparse isRoot prefix;
       set = printNode sparse isRoot prefix;
       list = printNode sparse isRoot prefix;
-      string = s: "${prefix}${space}${s}";
-    };
+      string = s: Strings [prefix space s];
+    } node);
 
   hiddenParams = [ "__type" "__isAST" "__toString" "__args" "fmap" "mapNode" "__src" "__offset"
                    "name" "value" "param" "ellipsis" "op" "op0" "op1" "isRec" ];
@@ -209,11 +213,11 @@ let this = rec {
       body =
         (optionals ((node.__src or null) != null) [(box {
           header = style [fg.cyan bold] "Source";
-          body = _b_ (node.__src);
+          body = [node.__src];
         })])
         ++ [(box {
           header = style [fg.yellow bold] "AST";
-          body = _b_ (toString node);
+          body = [(toString node)];
         })];
     };
 

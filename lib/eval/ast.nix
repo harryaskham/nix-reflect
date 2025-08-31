@@ -471,7 +471,7 @@ rec {
   guardBinaryOp = l: op: r: {_}:
     _.do
       (while {_ = "guarding argument types to ${op} op";})
-      ({_}: _.bind (switch op {
+      (switch op {
         "+" = guardOneBinaryOp "+" [["int" "float"] ["string" "path"]] l r;
         "-" = guardOneBinaryOp "-" [["int" "float"]] l r;
         "*" = guardOneBinaryOp "*" [["int" "float"]] l r;
@@ -484,24 +484,25 @@ rec {
         ">" = guardOneBinaryOp ">" [["int" "float"] ["string"] ["path"] ["list"]] l r;
         "<=" = guardOneBinaryOp "<=" [["int" "float"] ["string"] ["path"] ["list"]] l r;
         ">=" = guardOneBinaryOp ">=" [["int" "float"] ["string"] ["path"] ["list"]] l r;
-      }));
+      });
 
   runBinaryOp = l: op: r: {_}:
     _.do
+      (while {_ = "running binary operation ${op}";})
       (guardBinaryOp l op r)
-      ({_}: _.bind (switch op {
-        "+" = apply2 (l: r: l + r) l r;
-        "-" = apply2 (l: r: l - r) l r;
-        "*" = apply2 (l: r: l * r) l r;
-        "/" = apply2 (l: r: l / r) l r;
-        "++" = apply2 (l: r: l ++ r) l r;
-        "//" = apply2 (l: r: l // r) l r;
-        "==" = apply2 (l: r: l == r) l r;
-        "!=" = apply2 (l: r: l != r) l r;
-        "<" = apply2 (l: r: l < r) l r;
-        ">" = apply2 (l: r: l > r) l r;
-        "<=" = apply2 (l: r: l <= r) l r;
-        ">=" = apply2 (l: r: l >= r) l r;
+      ({_}: _.pure (switch op {                                                                                                                                                                                           
+        "+" = l + r;                                                                                                                                                                                                      
+        "-" = l - r;                                                                                                                                                                                                      
+        "*" = l * r;                                                                                                                                                                                                      
+        "/" = l / r;                                                                                                                                                                                                      
+        "++" = l ++ r;                                                                                                                                                                                                    
+        "//" = l // r;                                                                                                                                                                                                    
+        "==" = l == r;                                                                                                                                                                                                    
+        "!=" = l != r;                                                                                                                                                                                                    
+        "<" = l < r;
+        ">" = l > r;
+        "<=" = l <= r;
+        ">=" = l >= r;
       }));
 
   runBinaryOpListwise = ls: op: rs: {_}:
@@ -817,7 +818,8 @@ rec {
   EvaluatedLambda = argSpec: param: body: {_, ...}: 
     let _self_ = _; in _.do
       (while {_ = "building 'EvaluatedLambda'";})
-      (pure (lib.fix (self: {
+      {definingScope = getScope;}
+      ({definingScope, _}: _.pure (lib.fix (self: {
         __isEvaluatedLambda = true;
 
         __functor = self: arg: self.asLambda arg;
@@ -845,23 +847,13 @@ rec {
           (pure (arg: self.asLambda arg));
 
         # Apply the lambda monadically, updating and accessing the thunk cache.
-        applyMWithCache = thunkCache: arg: {_}:
-          _.do
-            (while {_ = "applying ${self} to argument ${_p_ arg} with cache:\n${thunkCache}";})
-            {lambdaScope = evalLambdaParams argSpec param arg;}
-            ({lambdaScope, _}: _.saveScope (_self_.do
-              (while {_ = "applying ${self} to argument ${_p_ arg} with new scope ${_p_ lambdaScope}";})
-              (appendScope lambdaScope)
-              (setThunkCache thunkCache)
-              (evalNodeM body)));
-
-        # Apply the lambda monadically, updating and accessing the thunk cache.
         applyM = arg: {_}:
           _.do
             (while {_ = "applying ${self} to argument ${_p_ arg} without cache update";})
             {lambdaScope = evalLambdaParams argSpec param arg;}
             ({lambdaScope, _}: _.saveScope (_self_.do
               (while {_ = "applying ${self} to argument ${_p_ arg} with new scope ${_p_ lambdaScope}";})
+              (setScope definingScope)
               (appendScope lambdaScope)
               (evalNodeM body)));
       })));
@@ -916,7 +908,9 @@ rec {
   apply1Node = func_: argNode: {_, ...}:
     _.do
       (while {_ = "applying function to unevaluated argument";})
-      {func = forceEvalNodeM func_;}
+      {func = if isEvaluatedLambda func_ || builtins.isFunction func_                                                                                                                                                     
+              then pure func_                                                                                                                                                                                             
+              else forceEvalNodeM func_;}    
       ({func, _}: _.do
         (guardApplicable func)
         {arg = evalNodeM argNode;}

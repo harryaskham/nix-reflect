@@ -232,7 +232,7 @@ rec {
 
         print = args: with script-utils.ansi-utils.ansi; box ({
           header = style [fg.magenta bold] "ThunkCache";
-          body = ''
+          body = _b_ ''
             ${_h_ (this.stats {})}
 
             ${_h_ (this.debug {})}
@@ -350,7 +350,7 @@ rec {
       };
       printScope = args: with script-utils.ansi-utils.ansi; box ({
         header = style [bold] "Scope";
-        body = ''
+        body = _b_ ''
           ${_ph_ (this.scope)}
         '';
       } // args);
