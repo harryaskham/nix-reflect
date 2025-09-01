@@ -1089,8 +1089,10 @@ rec {
          _04_true = testRoundTripLazy "true" true;
          _05_false = testRoundTripLazy "false" false;
          _06_null = testRoundTripLazy "null" null;
-         _07_list = testRoundTripLazy "[1 2 3]" [(CODE 0 "int") (CODE 1 "int") (CODE 2 "int")];
-         _08_attrSet = testRoundTripLazy "{a = 1;}" {a = CODE 0 "int";};
+         _07_list.empty = testRoundTripLazy "[]" [];
+         _07_list.full = testRoundTripLazy "[1 2 3]" [(CODE 0 "int") (CODE 1 "int") (CODE 2 "int")];
+         _08_attrSet.empty = testRoundTripLazy "{}" {};
+         _08_attrSet.full = testRoundTripLazy "{a = 1;}" {a = CODE 0 "int";};
          _09_attrPath = testRoundTripLazy "{a = 1;}.a" 1;
          _10_attrPathOr = testRoundTripLazy "{a = 1;}.b or 2" 2;
          _11_inheritsConst = testRoundTripLazy "{ inherit ({a = 1;}) a; }" {a = CODE 0 "int";};
@@ -1131,8 +1133,10 @@ rec {
         _04_true = testRoundTrip "true" true;
         _05_false = testRoundTrip "false" false;
         _06_null = testRoundTrip "null" null;
-        _07_list = testRoundTrip "[1 2 3]" [1 2 3];
-        _08_attrSet = testRoundTrip "{a = 1;}" {a = 1;};
+        _07_list.empty = testRoundTrip "[]" [];
+        _07_list.full = testRoundTrip "[1 2 3]" [1 2 3];
+        _08_attrSet.empty = testRoundTrip "{a = 1;}" {a = 1;};
+        _08_attrSet.full = testRoundTrip "{a = 1;}" {a = 1;};
         _09_attrPath = testRoundTrip "{a = 1;}.a" 1;
         _10_attrPathOr = testRoundTrip "{a = 1;}.b or 2" 2;
         _11_inheritsConst = testRoundTrip "{ inherit ({a = 1;}) a; }" {a = 1;};

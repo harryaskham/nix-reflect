@@ -317,16 +317,6 @@ rec {
                     };
                   }))
                   (pure value)));
-                  #let thunkCache' = result.s.thunkCache;
-                  #in _.do
-                  #  (setThunkCache (ThunkCache {
-                  #    inherit (thunkCache') thunks nextId hits;
-                  #    misses = thunkCache'.misses + 1;
-                  #    values = thunkCache'.values // { 
-                  #      ${thunkId} = result.a;
-                  #    };
-                  #  }))
-                  #  (pure result.a)));
       }));
   };
 
@@ -876,8 +866,8 @@ rec {
                   (this.pure [])
                   xs;
 
-              traverseAttrs = this: f: xs: {_, ...}:
-                _.do
+              traverseAttrs = this: f: xs:
+                this.do
                   {ss =
                     traverse
                       (x: {_, ...}: _.do
