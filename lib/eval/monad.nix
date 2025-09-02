@@ -871,8 +871,8 @@ rec {
                   {ss =
                     traverse
                       (x: {_, ...}: _.do
-                        {value = f (soloValue x);}
-                        ({value, _}: _.pure { ${soloName s} = value;}))
+                        {value = f (soloName x) (soloValue x);}
+                        ({value, _}: _.pure { ${soloName x} = value;}))
                       (solos xs);}
                   ({ss, _}: _.pure (mergeSolos ss));
 
@@ -1635,7 +1635,7 @@ rec {
                 multiple = expectRun { actual = (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])); expected = 6; };
               };
 
-              _01_traverse = solo {
+              _01_traverse = {
                 _00_empty = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])); expected = []; };
                 _01_single = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])); expected = [6]; };
                 _02_multiple = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])); expected = [2 4 6]; };
@@ -1693,6 +1693,7 @@ rec {
                         {a = 1; b = 2; c = 3;});
                   expected = {a = "ok"; b = "ok"; c = "ok";};
                   expectedScope = { sum = 6; seen = ["a" "b" "c"]; };
+                  buildExpectedScope = id;
                 };
               };
             };
