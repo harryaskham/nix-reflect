@@ -1635,7 +1635,7 @@ rec {
                 multiple = expectRun { actual = (Eval.do ({_}: _.foldM (acc: x: Eval.pure (acc + x)) 0 [1 2 3])); expected = 6; };
               };
 
-              _01_traverse = {
+              _01_traverse = solo {
                 _00_empty = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [])); expected = []; };
                 _01_single = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x + 1)) [5])); expected = [6]; };
                 _02_multiple = expectRun { actual = (Eval.do ({_}: _.traverse (x: Eval.pure (x * 2)) [1 2 3])); expected = [2 4 6]; };
@@ -1677,6 +1677,22 @@ rec {
                     finalCounter = 15;
                   };
                   expectedScope = { counter = 15; seen = [1 2 3 4 5]; };
+                };
+
+                _05_traverseAttrs = expectRun {
+                  actual =
+                    Eval.do
+                      (set (mkInitEvalState {counter = 0; seen = [];}))
+                      (traverseAttrs (k: v: {_}:
+                        _.do
+                          (modifyScope (s: {
+                            sum = (s.sum or 0) + v;
+                            seen = (s.seen or []) ++ [k];
+                          }))
+                          (pure "ok"))
+                        {a = 1; b = 2; c = 3;});
+                  expected = {a = "ok"; b = "ok"; c = "ok";};
+                  expectedScope = { sum = 6; seen = ["a" "b" "c"]; };
                 };
               };
             };

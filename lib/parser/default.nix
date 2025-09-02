@@ -116,7 +116,7 @@ let this = rec {
     single = {
       space = StringW 2 "  ";
       vline = StringW 2 "│ ";
-      hline = StringW 2 "─";
+      hline = Char "─";
       knee = StringW 2 "└─";
       tee = StringW 2 "├─";
       prefixBlock = false;
@@ -124,32 +124,36 @@ let this = rec {
     double = {
       space = StringW 2 "  ";
       vline = StringW 2 "║ ";
-      hline = StringW 2 "═";
+      hline = Char "═";
       knee = StringW 2 "╚═";
       tee = StringW 2 "╠═";
       prefixBlock = true;
     };
+    special = {
+      vlineEq = Char "╪";
+      vlineDash = Char "┆";
+    };
     setEl = maxKeyLen: k: 
       let kSpace = spaces maxKeyLen;
-          kSpaced = Strings [(spaces (maxKeyLen - size k)) k];
-      in {
-        space = StringW (3 + maxKeyLen)" ${kSpace} │";
-        vline = StringW (3 + maxKeyLen)" ${kSpace} │";
-        hline = StringW 1 "═";
-        knee = StringW (3 + width kSpaced) " ${kSpaced} ╪";
-        tee = StringW (3 + width kSpaced) " ${kSpaced} ╪";
+          kSpaced = Join [(spaces (maxKeyLen - width k)) k];
+      in with boxes.single; with boxes.special; {
+        space = Join [" " kSpace " " vline];
+        vline = Join [" " kSpace " " vline];
+        hline = Char "═";
+        knee = Join [" " kSpaced " " vlineEq];
+        tee = Join [" " kSpaced " " vlineEq];
         prefixBlock = true;
       };
     listEl = maxI: i_: 
       let i = toString i_;
-          iSpace = spaces maxI;
-          iSpaced = Strings [(spaces (maxI - size i)) i];
-      in {
-        space = StringW (1 + maxI) "${iSpace}┆";
-        vline = StringW (1 + maxI) "${iSpace}┆";
-        hline = StringW 1 "═";
-        knee = StringW (1 + width iSpaced) "${iSpaced}┆";
-        tee = StringW (1 + width iSpaced) "${iSpaced}┆";
+          iSpace = spaces (size (toString i));
+          iSpaced = pad { to = maxI; align = "right"; } (toString i);
+      in with boxes.single; with boxes.special; {
+        space = Join [iSpace vlineDash];
+        vline = Join [iSpace vlineDash];
+        hline = Char "═";
+        knee = Join [iSpaced vlineDash];
+        tee = Join [iSpaced vlineDash];
         prefixBlock = true;
       };
   };
@@ -159,7 +163,7 @@ let this = rec {
     log.while "printing AST node ${node.nodeType or "<unnamed>"}" (
     let blocks = toNodeBlocks node;
         nBlocks = size blocks;
-    in ifor blocks (blockIx: { name ? null, body, box }:
+    in Lines (ifor blocks (blockIx: { name ? null, body, box }:
       with box;
       let 
         maybeNonEmpties = if sparse then id else nonEmpties;
@@ -186,21 +190,18 @@ let this = rec {
           else if i == nLines - 1 then blockPrefix.last
           else blockPrefix.mid;
       in 
-        Strings 
-          (ifor lines (i: l: Strings
-            [ prefix space (linePrefix i) l "\n" ]
-          ))
-    ));
+        Lines (ifor lines (i: l: Join [ prefix space (linePrefix i) l ]))))
+    );
 
   printAST = printAST_ true true "";
   printASTCompact = printAST_ false true "";
   printAST_ = sparse: isRoot: prefix: node:
     with boxes.single;
-    toString (dispatch.def.on signatureAST (x: Strings [prefix space knee (_p_ x)]) {
+    toString (dispatch.def.on signatureAST (x: Join [prefix space knee (_p_ x)]) {
       AST = printNode sparse isRoot prefix;
       set = printNode sparse isRoot prefix;
       list = printNode sparse isRoot prefix;
-      string = s: Strings [prefix space s];
+      string = s: Join [prefix space s];
     } node);
 
   hiddenParams = [ "__type" "__isAST" "__toString" "__args" "fmap" "mapNode" "__src" "__offset"
@@ -210,14 +211,18 @@ let this = rec {
     if !(isAST node) then node
     else with script-utils.ansi-utils.ansi; box {
       header = printASTName node;
+      padding = zeros // { left = 1; };
       body =
         (optionals ((node.__src or null) != null) [(box {
           header = style [fg.cyan bold] "Source";
           body = [node.__src];
+          margin = zeros;
         })])
         ++ [(box {
           header = style [fg.yellow bold] "AST";
-          body = [(toString node)];
+          padding = ones // { top = 0; };
+          margin = zeros;
+          body = printASTCompact node;
         })];
     };
 
