@@ -211,6 +211,8 @@ rec {
           (eval.ast.forceEvalNodeM node));
     });
 
+  maybeThunk = node: if isThunk node then pure node else Thunk node;
+
   Thunk = node:
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
     if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
@@ -1038,7 +1040,7 @@ rec {
 
   appendScope = newScope: {_, ...}:
     _.do
-      (while {_ = "appending scope";})
+      (while {_ = "appending scope: ${_l_ (attrNames newScope)}";})
       (guardScopeUpdate newScope)
       (modifyScope (scope: scope // newScope));
 

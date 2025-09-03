@@ -795,7 +795,7 @@ rec {
               ''))
               # First add the concrete supplied values to the scope so that default resolution sees them.
               # Could also just convert to bindings and not use the scope.
-              {argThunkAttrs = traverseAttrs (_: Thunk) arg;}
+              {argThunkAttrs = traverseAttrs (_: maybeThunk) arg;}
               ({argThunkAttrs, _}: _.saveScope ({_}: _.do
                 (appendScope argThunkAttrs)
                 # Then evaluate a recursive binding list of only those default values that are not already supplied.
@@ -813,25 +813,30 @@ rec {
   requiredParamAttrs = param: filter (paramAttr: paramAttr.nodeType != "defaultParam") param.attrs;
 
   # For attrset param lambdas, get the named parameters and their defaults as ASTs.
-  lambdaArgSpec = param: {_}: switch param.nodeType {
-    simpleParam = _.pure null;
-    attrSetParam = _.do
-      {requiredParams =
-        pure (for (requiredParamAttrs param) (p: {
-          ${getParamName p} = { default = null; };
-        }));}
-      {defaultParams =
-        traverse
-          (p: {_}: _.do
-            # Capture thunk state for defaults at the point of lambda definition
-            # TODO: May fail to capture backwards recursion of attr defaults
-            {default = Thunk p.default;}
-            ({default, _}: _.pure {
-              ${getParamName p} = { inherit default; };
-            }))
-          (defaultParamAttrs param);}
-      ({requiredParams, defaultParams, _}: _.pure (mergeAttrsList (requiredParams ++ defaultParams)));
-  };
+  lambdaArgSpec = param: {_}: _.do
+    (while {_ = "getting lambda arg spec for '${param.nodeType}' param";})
+    (switch param.nodeType {
+      simpleParam = {_}: _.do
+        (while {_ = "returning null lambda arg spec for simpleParam";})
+        pure null;
+      attrSetParam = {_}: _.do
+        (while {_ = "getting lambda arg spec for attrSetParam";})
+        {requiredParams =
+          pure (for (requiredParamAttrs param) (p: {
+            ${getParamName p} = { default = null; };
+          }));}
+        {defaultParams =
+          traverse
+            (p: {_}: _.do
+              # Capture thunk state for defaults at the point of lambda definition
+              # TODO: May fail to capture backwards recursion of attr defaults
+              {default = Thunk p.default;}
+              ({default, _}: _.pure {
+                ${getParamName p} = { inherit default; };
+              }))
+            (defaultParamAttrs param);}
+        ({requiredParams, defaultParams, _}: _.pure (mergeAttrsList (requiredParams ++ defaultParams)));
+    });
 
   # Carrier for lambdas created entirely inside the Eval monad, as opposed to e.g.
   # lambdas created by the use of the builtins embedded in the scope.
@@ -845,6 +850,9 @@ rec {
   # We get deep conversion via the use of run_:
   # e.g. if we have Eval (a: b: a + b) then asLambda gives native a: (b: a + b).run ==
   # a: (b: a + b) (the latter EL is converted via asLambda in run_) so this maybe be okay.
+  #
+  # TODO: thunk IDs are getting reused; default arg thunks drop out of the cache
+  # move to a run-local thunkcache or AST ID cache
   isEvaluatedLambda = x: x ? __isEvaluatedLambda;
   EvaluatedLambda = argSpec: param: body: {_, ...}: 
     let _self_ = _; in _.do
@@ -880,11 +888,13 @@ rec {
         # Apply the lambda monadically, updating and accessing the thunk cache.
         applyM = arg: {_}:
           _.do
-            (while {_ = "applying ${self} to argument ${_p_ arg} without cache update";})
+            (while {_ = "applying ${self} to argument ${_p_ arg} in applyM";})
+            # Evaluate the params in the calling scope, with access to defaults
             {lambdaScope = evalLambdaParams argSpec param arg;}
-            ({lambdaScope, _}: _.saveScope (_self_.do
+            {thunkCache = getThunkCache;}
+            ({lambdaScope, thunkCache, _}: _.saveScope (_self_.do
               (while {_ = "applying ${self} to argument ${_p_ arg} with new scope ${_p_ lambdaScope}";})
-              (setScope definingScope)
+              #(setScope definingScope)
               (appendScope lambdaScope)
               (evalNodeM body)));
       })));
@@ -1189,9 +1199,8 @@ rec {
       };
 
       _01_allFeatures =
-        (
+        solo (
         let 
-          # Test all major language constructs in one expression
           expr = ''
             let f = { a ? 1, b, ... }:
                   let 
