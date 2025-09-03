@@ -22,7 +22,7 @@ rec {
   runAST' = runAST_ true;
   runAST_ = strict: expr:
     (do
-      (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
+      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}";})
       (evalM strict expr))
     .run (EvalState.mempty {});
 
@@ -32,7 +32,7 @@ rec {
   evalAST' = evalAST_ true;
   evalAST_ = strict: expr:
     (do
-      (whileV 1 "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}")
+      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}";})
       (evalM strict expr))
     .run_ (EvalState.mempty {});
 
@@ -42,20 +42,20 @@ rec {
     let parsed = parse expr;
     in with (log.v 1).call "evalM" strict expr ___;
     {_, ...}: _.do
-      (whileV 2 (_b_ ''
+      (whileV 2 {_ = (_b_ ''
         evaluating parsed AST node (strict=${boolToString strict}):
         ${printBoxed parsed}
-      ''))
+      '');})
       {result = if strict then toNixM parsed else toNixLazyM parsed;}
       {state = get;}
       ({result, state, _}: _.do
-        (whileV 1 (_b_ ''
+        (whileV 1 {_ = (_b_ ''
           returning evaluation result:
           ${_ph_ result}
 
           with final state:
           ${printBoxed (removeBuiltins state)}
-        ''))
+        '');})
         (pure result));
 
   toNixSignature = x:
@@ -92,7 +92,7 @@ rec {
         #Function = _.pure (arg: toNix (x arg));
         Function = _.pure x;
         List = _.traverse toNixM x;
-        Attrs = _.traverseAttrs toNixM x;
+        Attrs = _.traverseAttrs (_: toNixM) x;
         Value = _.pure x;
       });
 
@@ -136,7 +136,7 @@ rec {
   evalNodeM = node:
     with (log.v 3).call "evalNodeM" (toString node) ___;
     ({_}: _.do
-      (whileV 2 "evaluating AST node: ${toString node}")
+      (whileV 2 {_ = "evaluating AST node: ${toString node}";})
       (if is EvalError node then liftEither node else pure unit)
       (guard (is AST node) (RuntimeError ''
         evalNodeM: Expected AST node or Thunk, got ${_ph_ node}
@@ -171,23 +171,23 @@ rec {
 
   deeplyEvalNodeM = node: {_, ...}:
     _.do
-      (whileV 2 "deeply evaluating AST node: ${printBoxed node}")
+      (whileV 2 {_ = "deeply evaluating AST node: ${printBoxed node}";})
       (forceDeeplyM (evalNodeM node));
 
   forceEvalNodeM = node: {_, ...}:
     _.do
-      (whileV 2 "evaluating AST node to WHNF: ${printBoxed node}")
+      (whileV 2 {_ = "evaluating AST node to WHNF: ${printBoxed node}";})
       (forceM (evalNodeM node));
 
   forceM = m: {_, ...}:
     _.do
-      (whileV 2 "forcing a monadic value")
+      (whileV 2 {_ = "forcing a monadic value";})
       {unforced = m;}
       ({_, unforced}: _.bind (force unforced));
 
   forceDeeplyM = m: {_, ...}:
     _.do
-      (whileV 2 "deeply forcing a monadic value")
+      (whileV 2 {_ = "deeply forcing a monadic value";})
       {unforced = m;}
       ({_, unforced}: _.bind (forceDeeply unforced));
 
@@ -214,7 +214,7 @@ rec {
         (traverse forceDeeply x)
       else if isAttrs x then _.do
         (while {_ = "forcing deeply: descending into an attrset";})
-        (traverseAttrs forceDeeply x)
+        (traverseAttrs (_: forceDeeply) x)
       else _.do
         (while {_ = "forcing deeply: returning a non-monadic value of type ${lib.typeOf x}";})
         (pure x));
@@ -235,10 +235,16 @@ rec {
   identifierName = node: {_, ...}:
     _.do
       (while {_ = "evaluating a name";})
-      {name = 
-        if isString node then pure node
-        else if node.nodeType == "identifier" then pure node.name
-        else forceEvalNodeM node;}
+      {name = {_}:
+        if isString node then _.do
+          (while {_ = "evaluating a pure string name '${node}'";})
+          (pure node)
+        else if node.nodeType == "identifier" then _.do
+          (while {_ = "extracting an identifier name '${node.name}' directly";})
+          (pure node.name)
+        else _.do
+          (while {_ = "evaluating a name from a '${node.nodeType}' node";})
+          (forceEvalNodeM node);}
       ({_, name}: _.do
         (guard (lib.isString name) (RuntimeError ''
           Expected string identifier name, got ${lib.typeOf name}
@@ -391,6 +397,33 @@ rec {
     _.do
       {k = identifierName node.lhs;}
       # Write an action that will run once we have a complete set of recursive bindings.
+      # TODO: No good for nesting:
+      # In the case of xs = rec { before = { x = after; }; after = { x = before; }; }
+      # Pass #1: {
+      #   before = AST{x = after;};
+      #   after = AST{x = before;};
+      # };
+      #
+      # Accessing xs.{before, after}.x will look up in global scope via AST eval, and fail
+      #
+      # Pass #2: {
+      #   before = Thunk{
+      #     before = AST{x = after;};
+      #     after = AST{x = before;};
+      #   }
+      #   after = Thunk{
+      #     before = Thunk{
+      #       before = AST{x = after;};
+      #       after = AST{x = before;};
+      #     }
+      #     after = AST{x = before;};
+      #   }
+      #
+      # Accessing xs.before.x will be same as Pass #1; thunkified the AST-only scope
+      # Accessing xs.after.x will work (though gives the 'before' value with AST-only scopes that can't resolve x)
+      # so xs.after.x.x will fail.
+      # More passes increase the amount of possible x.x.x... access but will always be grounded in failure.
+      # TODO: implement in terms of lib.fix (needs a monadic fixM)
       ({_, k}: _.appendScope { ${k} = node.rhs; });
 
   # Create a forward reference for an AST binding before evaluating a full attrset
@@ -435,9 +468,7 @@ rec {
       (traverse storeRecAssignmentNode assignmentNodes)
       # rec-inherits could refer to any of the assigned nodes
       (traverse storeRecInheritNode inheritNodes)
-      # Then the Thunks in two passes, so each sees a thunk at each other key.
-      # TODO: This will result 2x re-evaluation.
-      #(traverse storeRecAssignmentAction assignmentNodes)
+      # Then the Thunks, so each sees a thunk at each other key.
       (traverse storeRecAssignmentAction assignmentNodes);
 
   # Evaluate a list of recursive bindings
@@ -764,7 +795,7 @@ rec {
               ''))
               # First add the concrete supplied values to the scope so that default resolution sees them.
               # Could also just convert to bindings and not use the scope.
-              {argThunkAttrs = traverseAttrs Thunk arg;}
+              {argThunkAttrs = traverseAttrs (_: Thunk) arg;}
               ({argThunkAttrs, _}: _.saveScope ({_}: _.do
                 (appendScope argThunkAttrs)
                 # Then evaluate a recursive binding list of only those default values that are not already supplied.

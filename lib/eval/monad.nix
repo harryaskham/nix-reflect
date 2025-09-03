@@ -264,13 +264,13 @@ rec {
             thunkId = toString this.nextId;
             thunk = mkThunk _ thunkId node;
           in _.do
-            (whileV 3 "writing ${thunk} into cache:\n${this}")
+            (whileV 3 {_ = "writing ${thunk} into cache:\n${this}";})
             (setThunkCache (ThunkCache { 
               inherit (this) values hits misses;
               thunks = this.thunks // { ${thunkId} = thunk; };
               nextId = this.nextId + 1;
             }))
-            (whileV 3 "returning ${thunk} from cacheNode")
+            (whileV 3 {_ = "returning ${thunk} from cacheNode";})
             (pure thunk);
 
         # Argument is just used as ID carrier.
@@ -1073,11 +1073,11 @@ rec {
 
   traceWithScope = {_}: _.do
     {scope = getWithScope;}
-    ({scope, _}: _.whileV 3 "tracing 'with' scope:\n${_p_ scope}");
+    ({scope, _}: _.whileV 3 {_ = "tracing 'with' scope:\n${_p_ scope}";});
 
   traceScope = {_}: _.do
     {scope = getScope;}
-    ({scope, _}: _.whileV 3 "tracing scope:\n${_p_ scope}");
+    ({scope, _}: _.whileV 3 {_ = "tracing scope:\n${_p_ scope}";});
 
   CODE = thunkId: nodeType: {
     inherit nodeType;
