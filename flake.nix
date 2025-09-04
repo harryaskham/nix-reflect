@@ -8,7 +8,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     nix-parsec.url = "github:nprindle/nix-parsec";
     collective-public = {
-      url = "git+https://github.com/harryaskham/collective-public?submodules=1";
+      url = "github.com:harryaskham/collective-public";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
