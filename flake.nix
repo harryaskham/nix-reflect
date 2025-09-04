@@ -9,7 +9,6 @@
     collective-public = {
       url = "git+ssh://git@github.com:harryaskham/collective-public?ref=dev";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.nix-reflect = inputs.self;
     };
   };
 
