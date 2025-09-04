@@ -13,15 +13,15 @@
       "locked": {
         "lastModified": 1757020763,
         "narHash": "sha256-5lCzka8Nz9KQwC09Giu2TB892BK3/cJUN4wai3xPaUo=",
-        "ref": "refs/heads/main",
+        "owner": "harryaskham",
+        "repo": "collective-public",
         "rev": "41bb043efbbf7a7eeb75a61bb97acabcbac36930",
-        "revCount": 676,
-        "type": "git",
-        "url": "https://github.com/harryaskham/collective-public"
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "https://github.com/harryaskham/collective-public"
+        "owner": "harryaskham",
+        "repo": "collective-public",
+        "type": "github"
       }
     },
     "collective-public_10": {
