@@ -1691,10 +1691,10 @@ rec {
           dependent = testRoundTrip "let x = 1; y = let z = x + 1; in z * 2; in y" 4;
         };
         recursive = {
-          simple = testRoundTrip "let x = y; y = 1; in x" 1;
-          mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
-          complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
-          factorial =
+          _00_simple = testRoundTrip "let x = y; y = 1; in x" 1;
+          _01_mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
+          _02_complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
+          _03_factorial =
             let expr = i: "let f = x: if x == 0 then 1 else x * f (x - 1); in f ${toString i}";
             in {
               _0 = testRoundTrip (expr 0) 1;
@@ -1703,7 +1703,7 @@ rec {
               _3 = testRoundTrip (expr 3) 6;
               #_4 = testRoundTrip (expr 4) 24;
             };
-          fibonacci =
+          _04_fibonacci =
             let expr = i: "let fib = n: if n <= 1 then n else fib (n - 1) + fib (n - 2); in fib ${toString i}";
             in {
               _0 = testRoundTrip (expr 0) 0;
@@ -1714,7 +1714,7 @@ rec {
           # TODO: Fixing this requires laziness; when fib2 calls into memo, memo is fully eval'd,
           # including fib2. We should instead have 'attrs' evaluate to an object that can be
           # accessed lazily i.e. most evaluations should return thunks.
-          fibonacciRec =
+          _05_fibonacciRec =
             skip (
             let expr = ''
               let k = i: "_" + (builtins.toString i);
@@ -1735,13 +1735,13 @@ rec {
             in (testRoundTrip expr [0 1 1 2 3 5 8 13])
             );
         };
-        shadowing = {
+        _06_shadowing = {
           innerShadowsOuter = testRoundTrip "let x = 1; in let x = 2; in x" 2;
           accessOuter = testRoundTrip "let x = 1; y = x + 1; in let x = 3; in y" 2;
           multipleLevels = testRoundTrip "let x = 1; in let x = 2; in let x = 3; in x" 3;
           partialShadowing = testRoundTrip "let x = 1; y = 2; in let x = 3; z = x + y; in z" 5;
         };
-        expressions = {
+        _07_expressions = {
           arithmetic = testRoundTrip "let x = 1 + 2; y = x * 3; in y" 9;
           conditionals = testRoundTrip "let result = if true then 1 else 2; in result" 1;
           withScope = testRoundTrip "let x = 1; result = if x == 1 then x + 1 else x - 1; in result" 2;
@@ -1749,7 +1749,7 @@ rec {
           listOperations = testRoundTrip "let xs = [1 2]; ys = [3 4]; result = xs ++ ys; in result" [1 2 3 4];
           attrOperations = testRoundTrip "let a = {x = 1;}; b = {y = 2;}; result = a // b; in result" {x = 1; y = 2;};
         };
-        edgeCases = {
+        _08_edgeCases = {
           complexBody = testRoundTrip "let x = 1; in {a = x; b = x + 1; c = [x (x + 1)];}" {a = 1; b = 2; c = [1 2];};
           emptyLet = testRoundTrip "let in 42" 42;
           functionInLet = testRoundTrip "let f = (x: y: x + y); in f 1 2" 3;
