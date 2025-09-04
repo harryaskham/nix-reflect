@@ -8,7 +8,7 @@
     collective-public = {
       url = "github:harryaskham/collective-public";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.nix-reflect.inputs.collective-public.follows = "";
+      inputs.nix-reflect.follows = "";
     };
   };
 
