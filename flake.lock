@@ -12,18 +12,17 @@
       },
       "locked": {
         "lastModified": 1757021656,
-        "narHash": "sha256-5f5bfEs6fOOtn3LegvTxDtq5rI+BBkQNzMMONaGqG5I=",
-        "ref": "refs/heads/main",
+        "narHash": "sha256-lvrSW8S8nc+OXfmiXDHzeK5U+OT4e+zvxolXC+zuaKM=",
+        "owner": "harryaskham",
+        "repo": "collective-public",
         "rev": "58a61ed6f3764932efc2ce8d02f3426ea651605a",
-        "revCount": 686,
         "submodules": true,
-        "type": "git",
-        "url": "https://github.com/harryaskham/collective-public"
+        "type": "github"
       },
       "original": {
-        "submodules": true,
-        "type": "git",
-        "url": "https://github.com/harryaskham/collective-public"
+        "owner": "harryaskham",
+        "repo": "collective-public",
+        "type": "github"
       }
     },
     "collective-public_10": {
