@@ -308,17 +308,20 @@ rec {
                     ${thunkCache}
                   ''; 
                 })
-                #{value = thunk.runWithCacheM thunkCache;}
-                {value = thunk.runWithoutCacheM;}
-                ({value, _}: _.do
-                  (setThunkCache (ThunkCache {
-                    inherit (thunkCache) thunks nextId hits;
-                    misses = thunkCache.misses + 1;
-                    values = thunkCache.values // { 
-                      ${thunkId} = value;
-                    };
-                  }))
-                  (pure value)));
+                # Run the thunk with the cache and get both value and updated cache
+                {result = thunk.runWithCacheM thunkCache;}
+                ({result, _}: _.do
+                  # Get the updated cache from the state after evaluation
+                  {updatedCache = getThunkCache;}
+                  ({updatedCache, _}: _.do
+                    (setThunkCache (ThunkCache {
+                      inherit (updatedCache) thunks nextId hits;
+                      misses = updatedCache.misses + 1;
+                      values = updatedCache.values // { 
+                        ${thunkId} = result;
+                      };
+                    }))
+                    (pure result))));
       }));
   };
 
