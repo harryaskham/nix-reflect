@@ -2,8 +2,6 @@
   description = "Nix library for parsing, evaluating and reflecting on Nix code, written in pure Nix";
 
   inputs = {
-    self.submodules = true;
-
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     nix-parsec.url = "github:nprindle/nix-parsec";
