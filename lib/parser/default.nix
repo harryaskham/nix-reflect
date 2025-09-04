@@ -100,7 +100,6 @@ let this = rec {
             (mapAttrsToList
               (k: v: 
                 let vS = _p_ v;
-                #in if lineCount vS == 1 then { name = "${k} = ${vS}"; body = {}; box = boxes.single; }
                 in if lineCount vS == 1 then { name = vS; body = {}; box = boxes.setEl maxKeyLen k; }
                 else { body = v; box = boxes.setEl maxKeyLen k; })
               xs);

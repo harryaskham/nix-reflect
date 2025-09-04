@@ -818,7 +818,7 @@ rec {
     (switch param.nodeType {
       simpleParam = {_}: _.do
         (while {_ = "returning null lambda arg spec for simpleParam";})
-        pure null;
+        (pure null);
       attrSetParam = {_}: _.do
         (while {_ = "getting lambda arg spec for attrSetParam";})
         {requiredParams =
@@ -1199,7 +1199,7 @@ rec {
       };
 
       _01_allFeatures =
-        solo (
+        skip (
         let 
           expr = ''
             let f = { a ? 1, b, ... }:

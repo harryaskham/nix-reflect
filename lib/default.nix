@@ -16,7 +16,7 @@ lib.fix (self:
     collective-lib = collective-public.lib.${pkgs.system}.withTraceOpts {
       traceLevel =
         let l = builtins.getEnv "CLTV_TRACE_LEVEL";
-        in if l == "" then 0 else lib.toInt l;
+        in if l == "" then 3 else lib.toInt l;
     };
     nix-parsec = inputs.nix-parsec or {
       # nix eval --raw .#inputs.nix-parsec.outPath 2>/dev/null
