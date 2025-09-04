@@ -3,11 +3,12 @@
 
   inputs = {
     self.submodules = true;
+
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     nix-parsec.url = "github:nprindle/nix-parsec";
     collective-public = {
-      url = "github:harryaskham/collective-public";
+      url = "git+https://github.com/harryaskham/collective-public?submodules=1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
