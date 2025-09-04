@@ -11,11 +11,11 @@
         "nixpkgs-stable": "nixpkgs-stable"
       },
       "locked": {
-        "lastModified": 1757023371,
-        "narHash": "sha256-Uam4rO10O7DYRpy8zjr99rx3mJRpzLxDSExQk+hw4KQ=",
+        "lastModified": 1757023724,
+        "narHash": "sha256-b44Xci4E1yNsfVzq3EeITH/VkN4H9beMfOHGN15R60Q=",
         "owner": "harryaskham",
         "repo": "collective-public",
-        "rev": "b2718e29741ecc11bb67ca3e3694926b826c3e87",
+        "rev": "f3fa9907d2715ec9bdff1794e49a83f4a6695237",
         "type": "github"
       },
       "original": {
