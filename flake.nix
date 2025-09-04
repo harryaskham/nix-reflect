@@ -6,7 +6,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     nix-parsec.url = "github:nprindle/nix-parsec";
     collective-public = {
-      url = "github:harryaskham/collective-public";
+      url = "git+ssh://git@github.com:harryaskham/collective-public?ref=dev";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
