@@ -206,6 +206,18 @@ let this = rec {
   hiddenParams = [ "__type" "__isAST" "__toString" "__args" "fmap" "mapNode" "__src" "__offset"
                    "name" "value" "param" "ellipsis" "op" "op0" "op1" "isRec" ];
 
+  hideParams = dispatch.def id {
+    set = xs: removeAttrs (mapAttrs (_: hideParams) xs) hiddenParams;
+    list = map hideParams;
+  };
+
+  toNodeTree = dispatch.def.on signatureAST id {
+    AST = node: (toNodeTree node.__args) // { __treeValue = printASTName node; };
+    set = mapAttrs (k: v: toNodeTree v);
+    list = map toNodeTree;
+  };
+  nodeTree = node: attrsToTree (toNodeTree node);
+
   printBoxed = node:
     if !(isAST node) then node
     else with script-utils.ansi-utils.ansi; box {
