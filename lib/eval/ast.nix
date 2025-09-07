@@ -136,7 +136,7 @@ rec {
   evalNodeM = node:
     with (log.v 3).call "evalNodeM" (toString node) ___;
     ({_}: _.do
-      (whileV 2 {_ = "evaluating AST node: ${toString node}";})
+      (whileV 2 {_ = "evaluating AST node:\n${toString node}";})
       (if is EvalError node then liftEither node else pure unit)
       (guard (is AST node) (RuntimeError ''
         evalNodeM: Expected AST node or Thunk, got ${_ph_ node}

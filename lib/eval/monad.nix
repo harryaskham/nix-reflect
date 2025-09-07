@@ -842,9 +842,7 @@ rec {
               whileV = this: v: s_:
                 let s = 
                   if isAttrs s_ then _b_ (with ansi; ''
-                    ${style [fg.grey] "@"} ${
-                      let p = (debuglib.pos.file s_)._;
-                      in "${atom.path p.file}:${style [fg.grey] (toString p.line)}"}
+                    ${style [fg.black italic] "@${let p = (debuglib.pos.file s_)._; in "${p.file}:${toString p.line}"}"}
                         ${_h_ ((style [fg.grey] "↳ │ ") + (_ls_ (mapTailLines (line: "  ${style [fg.grey] "│"} ${line}") (s_._))))}
                   '')
                   else s_;
@@ -1150,7 +1148,7 @@ rec {
             right = maybeRemoveBuiltins {
               s = EvalState {
                 scope =
-                  if expectedScope == null then r.right.s.scope 
+                  if expectedScope == null then r.right.s.scope or r.left
                   else buildExpectedScope expectedScope;
                 thunkCache =
                    def (r.right.s.thunkCache or null) expectedThunkCache;

@@ -47,8 +47,6 @@ let this = rec {
 
   sortNodeBlocks = sortOn (x: if isString (x.name or null) && sortOrder ? ${x.name} then sortOrder.${x.name} else 999);
 
-  filterNodeBody = filterAttrs (k: v: !(elem k hiddenParams) && safeNonEmpty v);
-
   signatureAST = node: if isAST node then "AST" else lib.typeOf node;
 
   printASTName = node: switch.def node.nodeType node.nodeType {
@@ -88,140 +86,34 @@ let this = rec {
     trinaryOp = "<_ ${node.op0} _ ${node.op1} _>";
   };
 
-  toNodeBlocks =
-    compose
-      sortNodeBlocks
-      (dispatch.def.on signatureAST (x: [{ body = _p_ x; }]) {
-        AST = node: [{ name = printASTName node; body = node.__args; box = boxes.single; }];
-        set = xs_:
-          let xs = filterNodeBody xs_;
-              maxKeyLen = maximum (map size (attrNames xs));
-          in sortNodeBlocks
-            (mapAttrsToList
-              (k: v: 
-                let vS = _p_ v;
-                in if lineCount vS == 1 then { name = vS; body = {}; box = boxes.setEl maxKeyLen k; }
-                else { body = v; box = boxes.setEl maxKeyLen k; })
-              xs);
-
-        list = xs: 
-          imap0 
-            (i: v: { body = v; box = boxes.listEl (if size xs < 10 then 1 else 2) i; })
-            xs;
-        string = body: [{ inherit body; box = boxes.single; }];
-      });
-
-  boxes = {
-    single = {
-      space = StringW 2 "  ";
-      vline = StringW 2 "│ ";
-      hline = Char "─";
-      knee = StringW 2 "└─";
-      tee = StringW 2 "├─";
-      prefixBlock = false;
-    };
-    double = {
-      space = StringW 2 "  ";
-      vline = StringW 2 "║ ";
-      hline = Char "═";
-      knee = StringW 2 "╚═";
-      tee = StringW 2 "╠═";
-      prefixBlock = true;
-    };
-    special = {
-      vlineEq = Char "╪";
-      vlineDash = Char "┆";
-    };
-    setEl = maxKeyLen: k: 
-      let kSpace = spaces maxKeyLen;
-          kSpaced = Join [(spaces (maxKeyLen - width k)) k];
-      in with boxes.single; with boxes.special; {
-        space = Join [" " kSpace " " vline];
-        vline = Join [" " kSpace " " vline];
-        hline = Char "═";
-        knee = Join [" " kSpaced " " vlineEq];
-        tee = Join [" " kSpaced " " vlineEq];
-        prefixBlock = true;
-      };
-    listEl = maxI: i_: 
-      let i = toString i_;
-          iSpace = spaces (size (toString i));
-          iSpaced = pad { to = maxI; align = "right"; } (toString i);
-      in with boxes.single; with boxes.special; {
-        space = Join [iSpace vlineDash];
-        vline = Join [iSpace vlineDash];
-        hline = Char "═";
-        knee = Join [iSpaced vlineDash];
-        tee = Join [iSpaced vlineDash];
-        prefixBlock = true;
-      };
-  };
-
-  # TODO: To Tree-printing library
-  printNode = sparse: isRoot: prefix: node:
-    log.while "printing AST node ${node.nodeType or "<unnamed>"}" (
-    let blocks = toNodeBlocks node;
-        nBlocks = size blocks;
-    in Lines (ifor blocks (blockIx: { name ? null, body, box }:
-      with box;
-      let 
-        maybeNonEmpties = if sparse then id else nonEmpties;
-        lines = maybeNonEmpties ((optionals (name != null) [name]) ++ (splitLines (printAST_ sparse false prefix body)));
-        nLines = size lines;
-        blockPrefix =
-          if isRoot then {
-            first = "\n";
-            mid = "";
-            last = "";
-          } else if blockIx < nBlocks - 1 then {
-            first = 
-              if prefixBlock then if nLines <= 1 then knee else tee
-              else "";
-            mid = vline;
-            last = vline;
-          } else {
-            first = if prefixBlock then knee else "";
-            mid = space;
-            last = space;
-          };
-        linePrefix = i: 
-          if i == 0 then blockPrefix.first 
-          else if i == nLines - 1 then blockPrefix.last
-          else blockPrefix.mid;
-      in 
-        Lines (ifor lines (i: l: Join [ prefix space (linePrefix i) l ]))))
-    );
-
-  printAST = printAST_ true true "";
-  printASTCompact = printAST_ false true "";
-  printAST_ = sparse: isRoot: prefix: node:
-    with boxes.single;
-    toString (dispatch.def.on signatureAST (x: Join [prefix space knee (_p_ x)]) {
-      AST = printNode sparse isRoot prefix;
-      set = printNode sparse isRoot prefix;
-      list = printNode sparse isRoot prefix;
-      string = s: Join [prefix space s];
-    } node);
-
-  hiddenParams = [ "__type" "__isAST" "__toString" "__args" "fmap" "mapNode" "__src" "__offset"
+  hiddenParams = [ "__type" "__isAST" "__toString" "__repr" "__args" "fmap" "mapNode" "__src" "__offset"
                    "name" "value" "param" "ellipsis" "op" "op0" "op1" "isRec" ];
 
-  hideParams = dispatch.def id {
-    set = xs: removeAttrs (mapAttrs (_: hideParams) xs) hiddenParams;
-    list = map hideParams;
+  hideParams = xs: removeAttrs xs hiddenParams;
+
+  astToForest = dispatch.def.on signatureAST (x: [(Leaf x)]) {
+    AST = node:
+      [(Tree 
+        (printASTName node)
+        (mapAttrsToList
+          (k: v: Tree k (astToForest v))
+          (hideParams node.__args)))];
+    set = xs:
+        (mapAttrsToList 
+          (k: v: Tree k (astToForest v))
+          xs);
+    list = xs:
+        (imap0 
+          (i: v: Tree i (astToForest v))
+          xs);
   };
 
-  toNodeTree = dispatch.def.on signatureAST id {
-    AST = node: (toNodeTree node.__args) // { __treeValue = printASTName node; };
-    set = mapAttrs (k: v: toNodeTree v);
-    list = map toNodeTree;
-  };
-  nodeTree = node: attrsToTree (toNodeTree node);
+  astToTree = compose head astToForest;
 
   printBoxed = node:
     if !(isAST node) then node
     else with script-utils.ansi-utils.ansi; box {
-      header = printASTName node;
+      header = style [bold] (printASTName node);
       padding = zeros // { left = 1; };
       body =
         (optionals ((node.__src or null) != null) [(box {
@@ -233,7 +125,7 @@ let this = rec {
           header = style [fg.yellow bold] "AST";
           padding = ones // { top = 0; };
           margin = zeros;
-          body = printASTCompact node;
+          body = toStrings (astToTree node);
         })];
     };
 
@@ -246,20 +138,24 @@ let this = rec {
 
   AST = {
     __toString = self: "AST";
-    __functor = self: nodeType: args: {
-      __type = AST;
-      __isAST = true;
-      __toString = self: printASTCompact self;
-      __args = args;
-      inherit nodeType;
-      __src = args.__src or null;
-      # fmap allows creation of any AST since we don't parameterise AST by type.
-      fmap = f: 
-        let b = f nodeType self;
-        in assert check self b; b;
-      # mapNode only maps the args of the node, retaining the type.
-      mapNode = f: self nodeType (f args);
-    } // args;
+    __functor = self: nodeType: args: 
+      let 
+        this = {
+          __type = AST;
+          __isAST = true;
+          __repr = toString (astToTree this);
+          __toString = self: self.__repr;
+          __args = args;
+          inherit nodeType;
+          __src = args.__src or null;
+          # fmap allows creation of any AST since we don't parameterise AST by type.
+          fmap = f: 
+            let b = f nodeType self;
+            in assert check self b; b;
+          # mapNode only maps the args of the node, retaining the type.
+          mapNode = f: self nodeType (f args);
+        } // args;
+        in this // args;
     check = x: x ? __isAST;
   };
   isAST = AST.check;
@@ -778,7 +674,7 @@ let this = rec {
 
   parseWith = p: s: parsec.runParser p s;
   parseExpr = s:
-    with (log.v 2).call "parseExpr" s ___;
+    with (log.v 4).call "parseExpr" s ___;
     return (parseWith p.exprEof s);
 
   printParseError = printParseError_ "" true true;
@@ -802,7 +698,7 @@ let this = rec {
   # Parse a string down to an AST, or leave an AST untouched.
   # Throw if not a string or AST, or if the parse fails.
   parse = x:
-    with (log.v 2).call "parse" x ___;
+    with (log.v 3).call "parse" x ___;
     return (flip dispatch x {
       string = s:
         let result = parseExpr s;
