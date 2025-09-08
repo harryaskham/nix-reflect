@@ -220,7 +220,7 @@ rec {
       (while {_ = "constructing '${node.nodeType}' Thunk";})
       {thunkCache = getThunkCache;}
       {thunk = {thunkCache, _}: _.bind (thunkCache.cacheNode node);}
-      ({thunk, _}: _.do 
+      ({thunk, _}: _.do
         (while {_ = "returning constructed ${thunk}";})
         (pure thunk));
 

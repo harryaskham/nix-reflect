@@ -404,33 +404,6 @@ rec {
   storeRecAssignmentNode = node: {_, ...}:
     _.do
       {k = identifierName node.lhs;}
-      # Write an action that will run once we have a complete set of recursive bindings.
-      # TODO: No good for nesting:
-      # In the case of xs = rec { before = { x = after; }; after = { x = before; }; }
-      # Pass #1: {
-      #   before = AST{x = after;};
-      #   after = AST{x = before;};
-      # };
-      #
-      # Accessing xs.{before, after}.x will look up in global scope via AST eval, and fail
-      #
-      # Pass #2: {
-      #   before = Thunk{
-      #     before = AST{x = after;};
-      #     after = AST{x = before;};
-      #   }
-      #   after = Thunk{
-      #     before = Thunk{
-      #       before = AST{x = after;};
-      #       after = AST{x = before;};
-      #     }
-      #     after = AST{x = before;};
-      #   }
-      #
-      # Accessing xs.before.x will be same as Pass #1; thunkified the AST-only scope
-      # Accessing xs.after.x will work (though gives the 'before' value with AST-only scopes that can't resolve x)
-      # so xs.after.x.x will fail.
-      # More passes increase the amount of possible x.x.x... access but will always be grounded in failure.
       # TODO: implement in terms of lib.fix (needs a monadic fixM)
       ({_, k}: _.appendScope { ${k} = node.rhs; });
 
@@ -439,10 +412,13 @@ rec {
     _.do
       {k = identifierName node.lhs;}
       {v = Thunk node.rhs;}
-      ({_, k, v}: _.appendScope { ${k} = v; });
+      ({_, k, v}: _.do
+        (appendScope { ${k} = v; })
+        (pure { ${k} = v; }));
+      #(trackScope "after storing rec assignment action");
 
-  # Create a forward reference for an AST inherit statement before evaluating a full attrset
-  storeRecInheritNodes = node:
+    # Create a forward reference for an AST inherit statement before evaluating a full attrset
+    storeRecInheritNodes = node:
     traverse
       (attr: {_}: _.do
         # Only evaluate the source to WHNF; 
@@ -451,46 +427,29 @@ rec {
         {k = identifierName attr.name;}
         ({source, k, _}: _.appendScope {
           ${k} = source.${k};
-        }))
+        })
+        (pure { ${k} = source.${k}; }))
       node.attrs;
-        #appendScope{
-        ## Write an action that will run once we have a complete set of recursive bindings.
-        ## Covers the case of { a = ...; inherit (a) ...; } where the source can be recursive
-        ## as only names and strings are permitted.
-        ## TODO: wasteful since every attr recomputes the source.
-        ## Needs a separate Thunk store.
-        #${k} = Eval.do
-        #  # Only evaluate the source to WHNF; 
-        #  {source = evalInheritSourceAttrs node.from;}
-        #  # TODO: disallow dynamic attributes
-        #  {k = identifierName attr.name;}
-        #  ({_, source, k}: _.pure source.${k});
-      #})
-      #node.attrs;
 
-  storeRecBindingNodes = bindings: {_, ...}:
+  # Evaluate a list of recursive bindings
+  # These are added to the scope; it is up to the usage sites (i.e. attrSets, letIn, with) to
+  # saveScope appropriately. This is to enable nesting.
+  evalRecBindingList = bindings: {_, ...}:
     let assignmentNodes = filter (b: b.nodeType == "assignment") bindings;
         inheritNodes = filter (b: b.nodeType == "inherit") bindings;
     in _.do
       # First store the ASTs so that at least we have working if slow scope for all assignments
       (traverse storeRecAssignmentNode assignmentNodes)
+      #(trackScope "after storing rec AST node forward references")
       # rec-inherits could refer to any of the assigned nodes
-      (traverse storeRecInheritNode inheritNodes)
+      {inheritAttrs = traverse storeRecInheritNodes inheritNodes;}
+      #(trackScope "after storing rec inherit node forward references")
       # Then the Thunks, so each sees a thunk at each other key.
-      (traverse storeRecAssignmentAction assignmentNodes);
-
-  # Evaluate a list of recursive bindings
-  # These are added to the scope; it is up to the usage sites (i.e. attrSets, letIn, with) to
-  # saveScope appropriately. This is to enable nesting.
-  evalRecBindingList = bindings: {_}:
-    _.do
-      # Pre-populate the store with forward references for all assignments and inherits
-      (storeRecBindingNodes bindings)
-      # This also adds to the scope as it goes, so later evaluations should see the
-      # non-AST eval'd versions as Thunks in the store.
-      {attrsSets = traverse addRecBindingToScope bindings;}
-      # Merge these, letting any errors propagate. Any missing identifier here is a true error.
-      ({attrsSets, _}: _.pure (mergeAttrsList attrsSets));
+      # TODO: handled by addRecBindingToScope
+      {assignmentAttrs = traverse storeRecAssignmentAction assignmentNodes;}
+      # TODO: Disallow duplicate names
+      ({inheritAttrs, assignmentAttrs, _}: _.pure (mergeAttrsList (inheritAttrs ++ assignmentAttrs)));
+      #(trackScope "after storing rec Thunks");
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r: {_}:
     _.do
@@ -1138,9 +1097,9 @@ rec {
 
     # Tests for evalAST round-trip property
     evalAST = {
-      #failing = {
-      #  _21_lambdaCurry = testRoundTripLazy "(a: b: a + b) 1 2" 3;
-      #};
+      failing = solo {
+        complex = testRoundTrip "rec { a = 1; b = a + 1; c = b + a; }" { a = 1; b = 2; c = 3; };
+      };
 
       _00_smoke._00_lazy = {
         _00_int = testRoundTripLazy "1" 1;
@@ -1310,7 +1269,7 @@ rec {
         empty = testRoundTrip "{}" {};
         simple = testRoundTrip "{ a = 1; b = 2; }" { a = 1; b = 2; };
         nested = testRoundTrip "{ x = { y = 42; }; }" { x = { y = 42; }; };
-        recursive = solo {
+        recursive = {
           complex = testRoundTrip "rec { a = 1; b = a + 1; c = b + a; }" { a = 1; b = 2; c = 3; };
           mutualRecursion = testRoundTrip "rec { a = b + 1; b = 5; }" { a = 6; b = 5; };
           nested = testRoundTrip "rec { x = { y = z; }; z = 42; }" { x = { y = 42; }; z = 42; };
@@ -1500,7 +1459,7 @@ rec {
       };
 
       _07_comparison = {
-        equality = solo {
+        equality = {
           attrEqual = testRoundTrip "{a = 1;} == {a = 1;}" true;
           attrNotEqual = testRoundTrip "{a = 1;} == {a = 2;}" false;
           boolEqual = testRoundTrip "true == true" true;
@@ -1570,7 +1529,7 @@ rec {
           #  in [(pointerEqual f f) (pointerEqual f g)]
           #'' [false false];
         };
-        nested = solo {
+        nested = {
           listOrdering.one = testRoundTrip "[1] < [2]" true;
           listOrdering.two = testRoundTrip "[1 2] < [2 1]" true;
           listOrdering.twoRev = testRoundTrip "[1 1] < [1 2]" true;
