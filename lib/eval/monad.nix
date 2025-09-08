@@ -1033,23 +1033,11 @@ rec {
       (guardScopeUpdate newScope)
       (modifyScope (scope: newScope // scope));
 
-  prependScopeM = newScopeM: {_, ...}:
-    _.do
-      (while {_ = "prepending monadic scope";})
-      {newScope = newScopeM;}
-      ({_, newScope}: _.prependScope newScope);
-
   appendScope = newScope: {_, ...}:
     _.do
       (while {_ = "appending scope: ${_l_ (attrNames newScope)}";})
       (guardScopeUpdate newScope)
       (modifyScope (scope: scope // newScope));
-
-  appendScopeM = newScopeM: {_, ...}:
-    _.do
-      (while {_ = "appending monadic scope";})
-      {newScope = newScopeM;}
-      ({_, newScope}: _.appendScope newScope);
 
   getWithScope = {_}: _.do
     (while {_ = "getting 'with' scope";})
@@ -1081,6 +1069,25 @@ rec {
   traceScope = {_}: _.do
     {scope = getScope;}
     ({scope, _}: _.whileV 3 {_ = "tracing scope:\n${_p_ scope}";});
+
+  trackScope' = msg: scope: {_, ...}:
+    let 
+      scopeDiff = toReprDiff (diffShort 
+        (removeAttrs initScope ["__internal__" "builtins"])
+        (removeAttrs scope ["__internal__" "builtins"]));
+    in _.whileV 3 {
+      _ = _b_ ''
+        tracking scope; ${msg}
+        ${with script-utils.ansi-utils.ansi; box {
+          header = style [bold] "Scope Diff";
+          body = _p_ scopeDiff;
+        }}
+      '';
+    };
+
+  trackScope = msg: {_, ...}: _.do
+    {scope = getScope;}
+    ({scope, _}: _.bind (trackScope' msg scope));
 
   CODE = thunkId: nodeType: {
     inherit nodeType;

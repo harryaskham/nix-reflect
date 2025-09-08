@@ -138,36 +138,44 @@ rec {
     ({_}: _.do
       (whileV 2 {_ = "evaluating AST node:\n${toString node}";})
       (if is EvalError node then liftEither node else pure unit)
-      (guard (is AST node) (RuntimeError ''
-        evalNodeM: Expected AST node or Thunk, got ${_ph_ node}
+      (guard (is AST node || isThunk node || isEvaluatedLambda node) (RuntimeError ''
+        evalNodeM: Expected AST node, Thunk, or EvaluatedLambda, got ${_ph_ node}
       ''))
-      {res = switch node.nodeType {
-        int = evalLiteral node;
-        float = evalLiteral node;
-        string = evalLiteral node;
-        stringPieces = evalStringPieces node;
-        interpolation = evalInterpolation node;
-        path = evalPath node;
-        anglePath = evalAnglePath node;
-        list = evalList node;
-        attrs = evalAttrs node;
-        attrPath = evalAttrPath node;
-        identifier = evalIdentifier node;
-        binaryOp = evalBinaryOp node;
-        unaryOp = evalUnaryOp node;
-        conditional = evalConditional node;
-        lambda = evalLambda node;
-        application = evalApplication node;
-        letIn = evalLetIn node;
-        assignment = evalAssignment node;
-        "with" = evalWith node;
-        "assert" = evalAssert node;
-        "abort" = evalAbort node;
-        "throw" = evalThrow node;
-        "import" = evalImport node;
-        "inherit" = evalInherit node;
-       };}
-       ({_, res}: _.pure (return res)));
+      ({_}: 
+        if isThunk node then _.do
+          (while {_ = "not evaluating a Thunk in evalNodeM";})
+          (pure node)
+        else if isEvaluatedLambda node then _.do
+          (while {_ = "not evaluating an EvaluatedLambda in evalNodeM";})
+          (pure node)
+        else _.do
+          {res = switch node.nodeType {
+            int = evalLiteral node;
+            float = evalLiteral node;
+            string = evalLiteral node;
+            stringPieces = evalStringPieces node;
+            interpolation = evalInterpolation node;
+            path = evalPath node;
+            anglePath = evalAnglePath node;
+            list = evalList node;
+            attrs = evalAttrs node;
+            attrPath = evalAttrPath node;
+            identifier = evalIdentifier node;
+            binaryOp = evalBinaryOp node;
+            unaryOp = evalUnaryOp node;
+            conditional = evalConditional node;
+            lambda = evalLambda node;
+            application = evalApplication node;
+            letIn = evalLetIn node;
+            assignment = evalAssignment node;
+            "with" = evalWith node;
+            "assert" = evalAssert node;
+            "abort" = evalAbort node;
+            "throw" = evalThrow node;
+            "import" = evalImport node;
+            "inherit" = evalInherit node;
+          };}
+          ({_, res}: _.pure (return res))));
 
   deeplyEvalNodeM = node: {_, ...}:
     _.do
@@ -753,78 +761,59 @@ rec {
 
   # Return any extra scope bound by passing in the arg to the param.
   # Receives the defining scope for the evaluation of any default values that depend upon other scope.
-  # evalLambdaParams :: Eval _ -> AST -> AST -> Eval Scope
-  evalLambdaParams =
-    _call_: param: argNode:
-    {_, ...}:
-    let _define_ = _;
-    in _define_.do
+  # addLambdaParamsToScope :: a -> AST -> Eval Scope
+  addLambdaParamsToScope = arg: param: argNode: {_, ...}:
+    _.do
       (while {_ = "evaluating 'lambda' parameters";})
       ({_}: switch param.nodeType {
         # Simple param is just a name, so just bind it to the arg with the calling scope _.
-        simpleParam = _.pure { ${getParamName param} = arg; };
+        simpleParam = _.do
+          {newScope = pure { ${getParamName param} = arg; };}
+          ({newScope, _}: _.do
+            (while {_ = "adding new scope from lambda params:\n${_p_ newScope}";})
+            (appendScope newScope)
+            (pure newScope));
 
         # Attrset param is a set of names, so bind each to the arg, with defaults handled.
-        attrSetParam = _.do
-          # Force far enough to know whether we have an attrset.
-          # This will create thunks in the arg values that are bound to the calling scope.
-          {arg = evalNodeM argNode;}
-          ({arg, _}: 
-            let
-              required = requiredParamAttrs param;
-              default = defaultParamAttrs param;
-              requiredPartitioned = partition (p: hasAttr (getParamName p) arg) required;
-              requiredSupplied = requiredPartitioned.right;
-              requiredUnsupplied = requiredPartitioned.wrong;
-              defaultPartitioned = partition (p: hasAttr (getParamName p) arg) default;
-              defaultSupplied = defaultPartitioned.right;
-              defaultUnsupplied = defaultPartitioned.wrong;
-              suppliedUnknown = removeAttrs arg (map getParamName param.attrs);
-            in _.do
-              (guard (lib.isAttrs arg) (TypeError ''
-                Expected attrset argument, got ${lib.typeOf arg}:
-                  ${_ph_ arg}
-              ''))
-              (guard (empty requiredUnsupplied) (RuntimeError ''
-                Missing required parameters in attrset lambda: ${joinSep ", " requiredUnsupplied}:
-                  ${_ph_ param}
-              ''))
-              (guard (param.ellipsis || empty suppliedUnknown) (RuntimeError ''
-                Unknown parameters in non-ellipsis attrset lambda: ${joinSep ", " (attrNames suppliedUnknown)}:
-                  ${_ph_ param}
-              ''))
-              # First add the concrete supplied values to the scope so that default resolution sees them.
-              # Savescope so we don't leak after the recursive binding.
-              (saveScope (
-                # Run the remaining arg resolution in the defining scope.
-                # This ensures that defaults see values from the calling scope unless they are overridden
-                # by the supplied args.
-                _define_.do
-                  # Write the supplied values to the scope.
-                  (appendScope arg)
-                  # Then evaluate a recursive binding list of only those default values that are not already supplied.
-                  # Reuses the rec binding mechanism by creating shim AST nodes. These will now be evaluated with the
-                  # supplied values in scope and so mutual recursion should work.
-                  {defaults =
-                    let bindings = forAttrsToList defaultUnsupplied (k: v: N.assignment (N.identifier k) v);
-                    in evalAttrs (N.attrs bindings true);}
-                  # Return the merged scope as an attrset.
-                  ({defaults, _}: _.pure (arg // defaults)))));
-              # # First add the concrete supplied values to the scope so that default resolution sees them.
-              # # Could also just convert to bindings and not use the scope.
-              # {argThunkAttrs = traverseAttrs (_: maybeThunk) arg;}
-              # ({argThunkAttrs, _}: _.saveScope (
-              #   # Run the remaining arg resolution in the defining scope.
-              #   _self_.do
-              #     (appendScope argThunkAttrs)
-              #     # Then evaluate a recursive binding list of only those default values that are not already supplied.
-              #     # Reuses the rec binding mechanism by creating shim AST nodes. These will now be evaluated with the
-              #     # supplied values in scope and so mutual recursion should work.
-              #     {defaultThunkAttrs =
-              #       let bindings = forAttrsToList defaultUnsupplied (k: v: N.assignment (N.identifier k) v);
-              #       in evalAttrs (N.attrs bindings true);}
-              #     # Add these defaults to the scope as well and return the merged scope as an attrset.
-              #     ({defaultThunkAttrs, _}: _.pure (argThunkAttrs // defaultThunkAttrs)))));
+        attrSetParam =
+          let
+            required = requiredParamAttrs param;
+            default = defaultParamAttrs param;
+            requiredPartitioned = partition (p: hasAttr (getParamName p) arg) required;
+            requiredSupplied = requiredPartitioned.right;
+            requiredUnsupplied = requiredPartitioned.wrong;
+            defaultPartitioned = partition (p: hasAttr (getParamName p) arg) default;
+            defaultSupplied = defaultPartitioned.right;
+            defaultUnsupplied = defaultPartitioned.wrong;
+            suppliedUnknown = removeAttrs arg (map getParamName param.attrs);
+          in _.do
+            (guard (lib.isAttrs arg) (TypeError ''
+              Expected attrset argument, got ${lib.typeOf arg}:
+                ${_ph_ arg}
+            ''))
+            (guard (empty requiredUnsupplied) (RuntimeError ''
+              Missing required parameters in attrset lambda: ${joinSep ", " requiredUnsupplied}:
+                ${_ph_ param}
+            ''))
+            (guard (param.ellipsis || empty suppliedUnknown) (RuntimeError ''
+              Unknown parameters in non-ellipsis attrset lambda: ${joinSep ", " (attrNames suppliedUnknown)}:
+                ${_ph_ param}
+            ''))
+            # First add the concrete supplied values to the scope so that default resolution sees them.
+            (while {_ = "adding new scope from explicitly supplied lambda params:\n${_p_ arg}";})
+            (appendScope arg)
+            # Then evaluate a recursive binding list of only those default values that are not already supplied.
+            # Reuses the rec binding mechanism by creating shim AST nodes. These will now be evaluated with the
+            # supplied values in scope and so mutual recursion should work.
+            {defaults =
+              let bindings = forAttrsToList defaultUnsupplied (k: v: N.assignment (N.identifier k) v);
+                  recAttrs = N.attrs bindings true;
+              in forceEvalNodeM recAttrs;}
+            # Return the merged scope as an attrset.
+            ({defaults, _}: _.do
+              (while {_ = "adding new scope from default lambda params:\n${_p_ defaults}";})
+              (appendScope defaults)
+              (pure (arg // defaults)));
       });
 
   defaultParamAttrs = param: filter (paramAttr: paramAttr.nodeType == "defaultParam") param.attrs;
@@ -880,51 +869,52 @@ rec {
   # We get deep conversion via the use of run_:
   # e.g. if we have Eval (a: b: a + b) then asLambda gives native a: (b: a + b).run ==
   # a: (b: a + b) (the latter EL is converted via asLambda in run_) so this maybe be okay.
-  #
-  # TODO: thunk IDs are getting reused; default arg thunks drop out of the cache
-  # move to a run-local thunkcache or AST ID cache
   isEvaluatedLambda = x: x ? __isEvaluatedLambda;
   EvaluatedLambda = param: body: {_, ...}: 
     let _define_ = _; in _.do
       (while {_ = "building 'EvaluatedLambda'";})
       {definingScope = getScope;}
-      ({definingScope, _}: _.pure (lib.fix (self: {
-        __isEvaluatedLambda = true;
+      ({definingScope, _}: _.do
+        #(trackScope' "before building lambda" definingScope)
+        #(trackScope' definingScope "before building lambda")
+        (_.pure (lib.fix (self: {
+          __isEvaluatedLambda = true;
 
-        __functor = self: arg: self.asLambda arg;
+          __functor = self: arg: self.asLambda arg;
 
-        __toString = self: "EvaluatedLambda<${_l_ param}: ...>";
+          __toString = self: "EvaluatedLambda<${_l_ param}: ...>";
 
-        asLambda = 
-          let 
-            toNix = x: ((Eval.do (toNixM x)).run_ {}).case {
+          asLambda = 
+            let 
+              toNix = x: ((Eval.do (toNixM x)).run_ {}).case {
+                Left = throw;
+                Right = x: 
+                  if (isMonadOf Eval x || isAST x || isThunk x || isEvaluatedLambda x) 
+                  then toNix x
+                  else x;
+              };
+            in arg: ((_define_.do self.applyM arg).run_ {}).case {
               Left = throw;
-              Right = x: 
-                if (isMonadOf Eval x || isAST x || isThunk x || isEvaluatedLambda x) 
-                then toNix x
-                else x;
+              Right = toNix;
             };
-          in arg: ((_define_.do self.applyM arg).run_ {}).case {
-            Left = throw;
-            Right = toNix;
-          };
 
-        asLambdaM = {_}: _.do
-          (while {_ = "converting ${self} to Nix lambda";})
-          (pure (arg: self.asLambda arg));
+          asLambdaM = {_}: _.do
+            (while {_ = "converting ${self} to Nix lambda";})
+            (pure (arg: self.asLambda arg));
 
-        # Apply the lambda monadically to an AST node, updating and accessing the thunk cache.
-        applyM = argNode: {_}:
-          _.do
-            (while {_ = "applying ${self} to AST argument ${argNode} in applyM";})
-            # Evaluate the params in the calling scope, with access to defaults
-            ({_}: let _call_ = _; in _call_.saveScope (_define_.do
-              {lambdaScope = evalLambdaParams _call_ param argNode;}
-              ({lambdaScope, _}: _.do
-                (while {_ = "applying ${self} to argument ${argNode} with new scope ${_p_ lambdaScope}";})
-                (appendScope lambdaScope)
-                (evalNodeM body))));
-      })));
+          # Apply the lambda monadically to an AST node, updating and accessing the thunk cache.
+          applyM = argNode: {_}:
+            _.do
+              (while {_ = "applying ${self} to AST argument ${argNode} in applyM";})
+              # Evaluate the params in the calling scope, with access to defaults
+              (saveScope ({_}: _.do
+                {arg = forceEvalNodeM argNode;}
+                ({arg, _}: _.do
+                  (setScope definingScope)
+                  (addLambdaParamsToScope arg param argNode)
+                  #(trackScope "after adding lambda params to scope")
+                  (evalNodeM body))));
+        }))));
 
   # Evaluate a lambda expression
   # evalLambda :: AST -> Eval EvaluatedLambda
@@ -1148,6 +1138,9 @@ rec {
 
     # Tests for evalAST round-trip property
     evalAST = {
+      #failing = {
+      #  _21_lambdaCurry = testRoundTripLazy "(a: b: a + b) 1 2" 3;
+      #};
 
       _00_smoke._00_lazy = {
         _00_int = testRoundTripLazy "1" 1;
@@ -1317,7 +1310,7 @@ rec {
         empty = testRoundTrip "{}" {};
         simple = testRoundTrip "{ a = 1; b = 2; }" { a = 1; b = 2; };
         nested = testRoundTrip "{ x = { y = 42; }; }" { x = { y = 42; }; };
-        recursive = {
+        recursive = solo {
           complex = testRoundTrip "rec { a = 1; b = a + 1; c = b + a; }" { a = 1; b = 2; c = 3; };
           mutualRecursion = testRoundTrip "rec { a = b + 1; b = 5; }" { a = 6; b = 5; };
           nested = testRoundTrip "rec { x = { y = z; }; z = 42; }" { x = { y = 42; }; z = 42; };
@@ -1507,7 +1500,7 @@ rec {
       };
 
       _07_comparison = {
-        equality = {
+        equality = solo {
           attrEqual = testRoundTrip "{a = 1;} == {a = 1;}" true;
           attrNotEqual = testRoundTrip "{a = 1;} == {a = 2;}" false;
           boolEqual = testRoundTrip "true == true" true;
@@ -1577,7 +1570,7 @@ rec {
           #  in [(pointerEqual f f) (pointerEqual f g)]
           #'' [false false];
         };
-        nested = {
+        nested = solo {
           listOrdering.one = testRoundTrip "[1] < [2]" true;
           listOrdering.two = testRoundTrip "[1 2] < [2 1]" true;
           listOrdering.twoRev = testRoundTrip "[1 1] < [1 2]" true;
