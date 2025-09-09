@@ -85,7 +85,7 @@ rec {
         Thunk = _.do
           {forced = force x;}
           ({forced, _}: _.bind (toNixM forced));
-        EvaluatedLambda = _.bind x.asLambdaM;
+        EvaluatedLambda = _.pure x.asLambda;
         Functor = _.do
           {f = toNixM x.__functor;}
           ({f, _}: _.pure (x // { __functor = self: arg: f self arg; }));
@@ -119,7 +119,7 @@ rec {
         Thunk = _.do
           {forced = force x;}
           ({forced, _}: _.bind (toNixLazyM forced));
-        EvaluatedLambda = _.bind x.asLambdaM;
+        EvaluatedLambda = _.pure x.asLambda;
         Functor = _.do
           {f = toNixLazyM x.__functor;}
           ({f, _}: _.pure (x // { __functor = f; }));
@@ -843,7 +843,7 @@ rec {
 
           __toString = self: "EvaluatedLambda<${_l_ param}: ...>";
 
-          asLambda = 
+          asLambda' = 
             let 
               toNix = x: ((Eval.do (toNixM x)).run_ {}).case {
                 Left = throw;
@@ -857,9 +857,13 @@ rec {
               Right = toNix;
             };
 
-          asLambdaM = {_}: _.do
-            (while {_ = "converting ${self} to Nix lambda";})
-            (pure (arg: self.asLambda arg));
+          asLambda = arg: 
+            Eval.do
+              (while {_ = "converting ${self} to Nix lambda";})
+              (((self.applyM arg).run_ {}).case {
+                Left = throw;
+                Right = id;
+              });
 
           # Apply the lambda monadically to an AST node, updating and accessing the thunk cache.
           applyM = argNode: {_}:
@@ -1157,7 +1161,10 @@ rec {
         _20_lambda._01_apply = testRoundTripSame "(a: a) 1" 1;
         _21_lambdaCurry = testRoundTripSame "(a: b: a + b) 1 2" 3;
         _22_lambdaClosure = testRoundTripSame "let a = 1; f = b: a + b; in let a = 100; in a + f 2" 103;
-        _23_lambdaRecDefaults = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) {}" 3;
+        _23_lambdaRecDefaults.overrideBoth = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { a = 2; b = 3; }" 5;
+        _23_lambdaRecDefaults.overrideA = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { a = 2; }" 3;
+        _23_lambdaRecDefaults.overrideB = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { b = 3; }" 4;
+        _23_lambdaRecDefaults.overrideNone = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
       _01_allFeatures =
