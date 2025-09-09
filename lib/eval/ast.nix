@@ -1097,7 +1097,7 @@ rec {
 
     # Tests for evalAST round-trip property
     evalAST = {
-      failing = solo {
+      failing = {
         complex = testRoundTrip "rec { a = 1; b = a + 1; c = b + a; }" { a = 1; b = 2; c = 3; };
       };
 

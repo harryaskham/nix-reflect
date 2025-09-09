@@ -189,40 +189,40 @@ rec {
 
   isThunk = x: x ? __isThunk;
 
-  mkThunk = _: thunkId: node: 
+  mkThunk = thunkId: node: {_, ...}:
     let _self_ = _;
-    in lib.fix (self: {
-      __isThunk = true;
-      inherit thunkId;
-      inherit (node) nodeType;
-      __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
+    in _self_.do
+      {scope = getScope;}
+      ({scope, _}: _.pure (lib.fix (self: {
+        __isThunk = true;
+        inherit thunkId;
+        inherit (node) nodeType;
+        __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
 
-      # Run the thunk fully and return the full monadic output {s, a}
-      # TODO: ThunkCache should actually be something global to the runner;
-      # having it in the state is causing problems
-      runWithCacheM = thunkCache: {_}:
-        _.saveScope (_self_.do
-          (while {_ = "forcing ${self} in runWithCacheM with cache:\n${thunkCache}";})
-          (setThunkCache thunkCache)
-          (eval.ast.forceEvalNodeM node));
-      runWithoutCacheM = {_}:
-        _.saveScope (_self_.do
-          (while {_ = "forcing ${self} in runWithoutCacheM";})
-          (eval.ast.forceEvalNodeM node));
-    });
+        runWithCacheM = thunkCache: {_}:
+          _.saveScope (_self_.do
+            (while {_ = "forcing ${self} in runWithCacheM with cache:\n${thunkCache}";})
+            (setScope scope)
+            (setThunkCache thunkCache)
+            (eval.ast.forceEvalNodeM node));
+
+        runWithoutCacheM = {_}:
+          _.saveScope (_self_.do
+            (while {_ = "forcing ${self} in runWithoutCacheM";})
+            (setScope scope)
+            (eval.ast.forceEvalNodeM node));
+      })));
 
   maybeThunk = node: if isThunk node then pure node else Thunk node;
 
   Thunk = node:
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
-    if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
-    else {_}: _.do
+    #if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
+    #else {_}: _.do
+    {_}: _.do
       (while {_ = "constructing '${node.nodeType}' Thunk";})
       {thunkCache = getThunkCache;}
-      {thunk = {thunkCache, _}: _.bind (thunkCache.cacheNode node);}
-      ({thunk, _}: _.do
-        (while {_ = "returning constructed ${thunk}";})
-        (pure thunk));
+      ({thunkCache, _}: _.bind (thunkCache.cacheNode node));
 
   ThunkCache = {
     __toString = self: "ThunkCache";
@@ -262,18 +262,18 @@ rec {
         # TODO: Need a thunk ID ordering that is not based on evaluation order
         # so that caches can be passed backwards in time.
         cacheNode = node: {_}:
-          let 
-            thunkId = toString this.nextId;
-            thunk = mkThunk _ thunkId node;
+          let thunkId = toString this.nextId;
           in _.do
-            (whileV 3 {_ = "writing ${thunk} into cache:\n${this}";})
-            (setThunkCache (ThunkCache { 
-              inherit (this) values hits misses;
-              thunks = this.thunks // { ${thunkId} = thunk; };
-              nextId = this.nextId + 1;
-            }))
-            (whileV 3 {_ = "returning ${thunk} from cacheNode";})
-            (pure thunk);
+            {thunk = mkThunk thunkId node;}
+            ({thunk, _}: _.do
+              (whileV 3 {_ = "writing ${thunk} into cache:\n${this}";})
+              (setThunkCache (ThunkCache {
+                inherit (this) values hits misses;
+                thunks = this.thunks // { ${thunkId} = thunk; };
+                nextId = this.nextId + 1;
+              }))
+              (whileV 3 {_ = "returning ${thunk} from cacheNode";})
+              (pure thunk));
 
         # Argument is just used as ID carrier.
         # TODO: ThunkCache could just hold nextId and values.
