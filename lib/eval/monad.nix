@@ -210,8 +210,7 @@ rec {
             runThunk = {_, ...}:
               _.saveScope (_.do
                 (while {_ = _b_ ''
-                  forcing ${self} in runThunk with thunkCache:
-                  ${thunkCache}
+                  forcing ${self} in runThunk
                 '';})
                 (setScope scope)
                 (when (thunkCache != null) (setThunkCache thunkCache))
@@ -542,7 +541,10 @@ rec {
   };
 
   tryPrintStatementRHS = M: f:
-    let rhs = try (f (nullRequiredArgs f // {_ = M.pure unit;})) (_: "...");
+    let rhs = 
+      #if attrNames (requiredArgs f) == ["_"] then try (f {_ = M.pure unit;}) (_: "...")
+      #else "<unapplicable RHS>";
+      "<unapplicable RHS>";
     in if isString rhs then rhs else printStatement M rhs;
 
   printStatement = M: 
@@ -868,7 +870,7 @@ rec {
                   # Add runtime tracing to the resolution of the bind only
                   this.bind (_: (log.v v).show "while ${s}" this)
                 );
-              while = this: s: this.whileV 4 s;
+              while = this: s: this.whileV 3 s;
               guard = this: cond: e: 
                 if cond 
                 then this.bind ({_}: _.pure unit) 

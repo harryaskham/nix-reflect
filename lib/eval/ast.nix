@@ -784,8 +784,10 @@ rec {
               (pure (arg // defaults)));
       });
 
-  defaultParamAttrs = param: filter (paramAttr: paramAttr.nodeType == "defaultParam") param.attrs;
-  requiredParamAttrs = param: filter (paramAttr: paramAttr.nodeType != "defaultParam") param.attrs;
+  defaultParamAttrs = param: 
+    filter (paramAttr: paramAttr.nodeType == "defaultParam") param.attrs;
+  requiredParamAttrs = param: 
+    filter (paramAttr: paramAttr.nodeType != "defaultParam") param.attrs;
 
   guardAttrSetParam = arg: param: {_, ...}:
     let
@@ -824,47 +826,45 @@ rec {
   # a: (b: a + b) (the latter EL is converted via asLambda in run_) so this maybe be okay.
   isEvaluatedLambda = x: x ? __isEvaluatedLambda;
 
+  evalLambdaParam = param: arg:
+    switch param.nodeType {
+      simpleParam = evalSimpleParam param arg;
+      attrSetParam = evalAttrSetParam param arg;
+    };
+
   # Evaluate a lambda param expression down to a lambda that makes new scope from an arg,
   # evalSimpleParam :: AST -> Eval (a -> Eval Set)
-  evalSimpleParam = node: {_, ...}:
+  evalSimpleParam = param: arg: {_, ...}:
     _.do
       (while {_ = "evaluating 'simpleParam' node";})
-      (pure (arg: pure { ${getParamName node} = arg; }));
+      (appendScope { ${getParamName param} = arg; });
 
   # Evaluate a lambda param expression down to a lambda that makes new scope from an arg,
-  # evalSimpleParam :: AST -> Eval (a -> Eval Set)
-  evalAttrSetParam = node: {_, ...}:
+  # evalAttrSetParam :: AST -> Eval (a -> Eval Set)
+  evalAttrSetParam = param: arg: {_, ...}:
     _.do
       (while {_ = "evaluating 'attrSetParam' node";})
-      (pure (arg_: {_, ...}: _.do
-        # Need to force the argument to ensure it is an attrset and check key validity.
-        {arg = force arg_;}
-        # Save the scope to use for recursive binding and thunk creation
-        ({arg, _}: _.saveScope ({_, ...}: _.do
-          (guardAttrSetParam arg node)
-          # Add arg to scope so default Thunks contain it
-          (appendScope arg)
-          # Add ASTs to the scope to break mutual recursion
-          (traverse
-            (p: {_, ...}:
-              let name = getParamName p;
-              in _.when (!(arg ? ${name})) (appendScope { ${name} = p.default; }))
-            (defaultParamAttrs node.attrs))
-          # Thunkify the defaults for the return value
-          {defaults = traverse
-            (p: {_, ...}:
-              let name = getParamName p;
-              in _.when (!(arg ? ${name})) (appendScope { ${name} = Thunk p.default; }))
-            (defaultParamAttrs node.attrs);}
-          # Return the combined parameters.
-          ({defaults, _}: _.pure (mergeAttrsList (defaults ++ arg)))))));
+      ({_}: _.do
+        (while {_ = "merging 'attrSetParam' node with arg";})
+        (guardAttrSetParam arg param)
+        # Add arg to scope so default Thunks contain it
+        (appendScope arg)
+        # Add ASTs to the scope to break mutual recursion
+        (traverse
+          (p: {_, ...}:
+            let name = getParamName p;
+            in _.when (!(arg ? ${name})) (appendScope { ${name} = p.default; }))
+          (defaultParamAttrs param))
+        # Thunkify the defaults for the return value
+        (traverse
+          (p: {_, ...}:
+            let name = getParamName p;
+            in _.when (!(arg ? ${name})) ({_, ...}: _.do
+              {thunk = Thunk p.default;}
+              ({thunk, _}: _.appendScope { ${name} = thunk; })))
+          (defaultParamAttrs param)));
 
-  # Evaluate a lambda param expression with an argument to the set of new scope the body should see.
-  evalParamWithArg = paramNode: arg: {_, ...}: _.do
-    (while {_ = "evaluating 'param' node with argument";})
-    {mkParamScope = evalNodeM paramNode;}
-    ({mkParamScope, _}: _.bind (mkParamScope arg));
-
+  # Evaluate a${self}
   # Evaluate a lambda expression down to a Thunk.
   # The only time this needs forcing is during application, where we evaluate
   # the argument in the calling context, and any default arguments in the thunk's context.
@@ -879,20 +879,17 @@ rec {
           __toString = self: "EvaluatedLambda<${node.param}: ...>";
 
           applyM = argNode: {_, ...}: _.do
-            (while {_ = "applying ${self}";})
-            {arg = evalNodeM argNode;}
-            ({arg, _, ...}:
-              _.pure (bodyThunk.setBefore ({_, ...}: _.do
-                (while {_ = "before applying ${self}";})
-                # Evaluate the defaults in the saved context of the body,
-                # which should have the same view of the current scope as the param list.
-                {paramScope = evalParamWithArg node.param arg;}
-                ({paramScope, _}: _.do
-                  (while {_ = _b_ ''
-                    before adding param scope to lambda body:
-                    ${_ph_ paramScope}
-                  '';})
-                  (appendScope paramScope)))));
+            (while {_ = "applying lambda";})
+            {arg = forceEvalNodeM argNode;}
+            {thunkCache = getThunkCache;}
+            ({arg, thunkCache, _, ...}:
+              _.pure (
+                bodyThunk
+                .setBefore ({_, ...}: _.do
+                  (while {_ = "before applying lambda";})
+                  # Evaluate the defaults in the saved context of the body,
+                  # which should have the same view of the current scope as the param list.
+                  (evalLambdaParam node.param arg))));
 
           asLambda = arg: toNix (Eval.do (self.applyM arg));
         })));
