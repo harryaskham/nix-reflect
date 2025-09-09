@@ -190,8 +190,7 @@ rec {
   isThunk = x: x ? __isThunk;
 
   mkThunk = thunkId: node: {_, ...}:
-    let _self_ = _;
-    in _self_.do
+    _.do
       (guard (!(isThunk node)) (RuntimeError ''
         mkThunk: expected a non-thunk node but got ${_p_ node}
       ''))
@@ -209,7 +208,7 @@ rec {
 
             # Run the thunk with the given monadic state and extra scope.
             runThunk = {_, ...}:
-              _.saveScope (_self_.do
+              _.saveScope (_.do
                 (while {_ = _b_ ''
                   forcing ${self} in runThunk with thunkCache:
                   ${thunkCache}
@@ -867,7 +866,7 @@ rec {
                   # Add runtime tracing to the resolution of the bind only
                   this.bind (_: (log.v v).show "while ${s}" this)
                 );
-              while = this: s: this.whileV 3 s;
+              while = this: s: this.whileV 4 s;
               guard = this: cond: e: 
                 if cond 
                 then this.bind ({_}: _.pure unit) 

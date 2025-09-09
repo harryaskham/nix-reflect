@@ -882,18 +882,17 @@ rec {
             (while {_ = "applying ${self}";})
             {arg = evalNodeM argNode;}
             ({arg, _, ...}:
-              _.pure (
-                bodyThunk.setBefore ({_, ...}: _.do
-                  (while {_ = "before applying ${self}";})
-                  # Evaluate the defaults in the saved context of the body,
-                  # which should have the same view of the current scope as the param list.
-                  {paramScope = evalParamWithArg node.param arg;}
-                  ({paramScope, _}: _.do
-                    (while {_ = _b_ ''
-                      before adding param scope to lambda body:
-                      ${_ph_ paramScope}
-                    '';})
-                    (appendScope paramScope)))));
+              _.pure (bodyThunk.setBefore ({_, ...}: _.do
+                (while {_ = "before applying ${self}";})
+                # Evaluate the defaults in the saved context of the body,
+                # which should have the same view of the current scope as the param list.
+                {paramScope = evalParamWithArg node.param arg;}
+                ({paramScope, _}: _.do
+                  (while {_ = _b_ ''
+                    before adding param scope to lambda body:
+                    ${_ph_ paramScope}
+                  '';})
+                  (appendScope paramScope)))));
 
           asLambda = arg: toNix (Eval.do (self.applyM arg));
         })));
