@@ -1105,9 +1105,16 @@ rec {
 
   _tests = with tests; suite {
 
+    lambdaOnly = solo {
+      _23_lambdaRecDefaults.overrideBoth = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { a = 2; b = 3; }" 5;
+      _23_lambdaRecDefaults.overrideA = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { a = 2; }" 3;
+      _23_lambdaRecDefaults.overrideB = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { b = 3; }" 4;
+      _23_lambdaRecDefaults.overrideNone = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) {}" 3;
+    };
+
     # Tests for evalAST round-trip property
     evalAST = {
-      _00_smoke = solo {
+      _00_smoke = {
         _00_int = testRoundTripSame "1" 1;
         _01_float = testRoundTripSame "1.0" 1.0;
         _02_string = testRoundTripSame ''"hello"'' "hello";
