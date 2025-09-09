@@ -52,7 +52,8 @@ rec {
         (whileV 1 {_ = (_b_ ''
           returning evaluation result:
           ${_ph_ result}
-
+        '');})
+        (whileV 4 {_ = (_b_ ''
           with final state:
           ${printBoxed (removeBuiltins state)}
         '');})
@@ -71,6 +72,11 @@ rec {
     else if isAttrs x then "Attrs"
     else "Value"
     );
+
+  toNix = x: ((Eval.do (toNixM x)).run_ {}).case {
+    Left = throw;
+    Right = id;
+  };
 
   toNixM = x: {_, ...}:
     let signature = toNixSignature x;
@@ -100,7 +106,7 @@ rec {
     if isEvalError x then throw (_p_ x)
     else if isEvaluatedLambda x then x.asLambda
     else if builtins.isFunction x then arg: toNixLazy (x arg)
-    else if x ? __functor then { __functor = toNixLazy x.__functor; }
+    else if x ? __functor then x // { __functor = toNixLazy x.__functor; }
     else x;
 
   # TODO: Need to strictly convert deeply nested functions to not return thunks
@@ -137,12 +143,14 @@ rec {
     with (log.v 3).call "evalNodeM" (toString node) ___;
     ({_, ...}: _.do
       (whileV 2 {_ = "evaluating AST node:\n${toString node}";})
-      (if is EvalError node then liftEither node else pure unit)
-      (guard (is AST node || isThunk node || isEvaluatedLambda node) (RuntimeError ''
-        evalNodeM: Expected AST node, Thunk, or EvaluatedLambda, got ${_ph_ node}
+      (guard (is AST node || isThunk node || isEvaluatedLambda node || is EvalError node) (RuntimeError ''
+        evalNodeM: Expected AST node, Thunk, EvaluatedLambda, or EvalError, got ${_ph_ node}
       ''))
       ({_, ...}: 
-        if isThunk node then _.do
+        if is EvalError node then _.do
+          (while {_ = "lifting an EvalError";})
+          (liftEither node)
+        else if isThunk node then _.do
           (while {_ = "not evaluating a Thunk in evalNodeM";})
           (pure node)
         else if isEvaluatedLambda node then _.do
@@ -191,7 +199,7 @@ rec {
 
   forceM = m: {_, ...}:
     _.do
-      (whileV 2 {_ = "forcing a monadic value";})
+      (whileV 3 {_ = "forcing a monadic value";})
       {unforced = m;}
       ({_, unforced}: _.bind (force unforced));
 
@@ -815,99 +823,80 @@ rec {
   # e.g. if we have Eval (a: b: a + b) then asLambda gives native a: (b: a + b).run ==
   # a: (b: a + b) (the latter EL is converted via asLambda in run_) so this maybe be okay.
   isEvaluatedLambda = x: x ? __isEvaluatedLambda;
-  EvaluatedLambda = paramThunk: body: {_, ...}: 
-    let _define_ = _; in _.do
-      (while {_ = "building 'EvaluatedLambda'";})
-      {definingScope = getScope;}
-      ({definingScope, _}: _.do
-        #(trackScope' "before building lambda" definingScope)
-        #(trackScope' definingScope "before building lambda")
-        (_.pure (lib.fix (self: {
-          __isEvaluatedLambda = true;
 
-          #__functor = self: arg: self.asLambda arg;
-
-          __toString = self: "EvaluatedLambda<${paramThunk}: ...>";
-
-          #asLambda' = 
-          #  let 
-          #    toNix = x: ((Eval.do (toNixM x)).run_ {}).case {
-          #      Left = throw;
-          #      Right = x: 
-          #        if (isMonadOf Eval x || isAST x || isThunk x || isEvaluatedLambda x) 
-          #        then toNix x
-          #        else x;
-          #    };
-          #  in arg: ((_define_.do self.applyM arg).run_ {}).case {
-          #    Left = throw;
-          #    Right = toNix;
-          #  };
-
-          #asLambda = arg: 
-          #  Eval.do
-          #    (while {_ = "converting ${self} to Nix lambda";})
-          #    (((self.applyM arg).run_ {}).case {
-          #      Left = throw;
-          #      Right = id;
-          #    });
-
-          # Apply the lambda monadically to an AST node, updating and accessing the thunk cache.
-          applyM = argNode: {_, ...}:
-            _.do
-              (while {_ = "applying ${self} to AST argument ${argNode} in applyM";})
-              # Evaluate the params in the calling scope, with access to defaults
-              {arg = forceEvalNodeM argNode;}
-              ({arg, _, ...}: _.saveScope ({_, ...}: _.do
-                (setScope definingScope)
-                {addParams = force paramThunk;}
-                ({addParams, _}: _.do
-                  (addParams arg)
-                  (evalNodeM body))));
-        }))));
-
-  # Evaluate a lambda param expression down to a lambda that updates scope with the argument provided.
-  # evalSimpleParam :: AST -> Eval (a -> Eval b)
+  # Evaluate a lambda param expression down to a lambda that makes new scope from an arg,
+  # evalSimpleParam :: AST -> Eval (a -> Eval Set)
   evalSimpleParam = node: {_, ...}:
     _.do
       (while {_ = "evaluating 'simpleParam' node";})
-      (pure (arg: {_, ...}: _.appendScope { ${getParamName node} = arg; }));
+      (pure (arg: pure { ${getParamName node} = arg; }));
 
-  # Evaluate a lambda param expression down to a lambda that updates scope with the argument provided.
-  # evalSimpleParam :: AST -> Eval (a -> Eval b)
+  # Evaluate a lambda param expression down to a lambda that makes new scope from an arg,
+  # evalSimpleParam :: AST -> Eval (a -> Eval Set)
   evalAttrSetParam = node: {_, ...}:
     _.do
       (while {_ = "evaluating 'attrSetParam' node";})
-      (pure (arg: {_, ...}: _.do
-        (guardAttrSetParam arg node)
-        (appendScope arg)
-        (traverse
-          (p: {_, ...}:
-            let name = getParamName p;
-            in _.when (!(arg ? ${name})) (appendScope { ${name} = p.default; }))
-          node.attrs)
-        (traverse
-          (p: {_, ...}:
-            let name = getParamName p;
-            in _.when (!(arg ? ${name})) (appendScope { ${name} = Thunk p.default; }))
-          node.attrs)));
+      (pure (arg_: {_, ...}: _.do
+        # Need to force the argument to ensure it is an attrset and check key validity.
+        {arg = force arg_;}
+        # Save the scope to use for recursive binding and thunk creation
+        ({arg, _}: _.saveScope ({_, ...}: _.do
+          (guardAttrSetParam arg node)
+          # Add arg to scope so default Thunks contain it
+          (appendScope arg)
+          # Add ASTs to the scope to break mutual recursion
+          (traverse
+            (p: {_, ...}:
+              let name = getParamName p;
+              in _.when (!(arg ? ${name})) (appendScope { ${name} = p.default; }))
+            node.attrs)
+          # Thunkify the defaults for the return value
+          {defaults = traverse
+            (p: {_, ...}:
+              let name = getParamName p;
+              in _.when (!(arg ? ${name})) (appendScope { ${name} = Thunk p.default; }))
+            node.attrs;}
+          # Return the combined parameters.
+          ({defaults, _}: _.pure (mergeAttrsList (defaults ++ arg)))))));
 
-  # Evaluate a lambda expression down to a monadic function from argument
-  # evalLambda :: AST -> (AST -> Eval a)
+  # Evaluate a lambda param expression with an argument to the set of new scope the body should see.
+  evalParamWithArg = paramNode: arg: {_, ...}: _.do
+    (while {_ = "evaluating 'param' node with argument";})
+    {mkParamScope = evalNodeM paramNode;}
+    ({mkParamScope, _}: _.bind (mkParamScope arg));
+
+  # Evaluate a lambda expression down to a Thunk.
+  # The only time this needs forcing is during application, where we evaluate
+  # the argument in the calling context, and any default arguments in the thunk's context.
+  # evalLambda :: AST -> Eval EvaluatedLambda
   evalLambda = node: {_, ...}:
     _.do
-      (while {_ = "evaluating 'lambda' node without argument";})
-      (pure (argNode: evalLambdaWithArg node argNode));
+      (while {_ = "evaluating 'lambda' node without argument to EvaluatedLambda";})
+      {bodyThunk = Thunk node.body;}
+      ({bodyThunk, _}:
+        _.pure (lib.fix (self: {
+          __isEvaluatedLambda = true;
+          __toString = self: "EvaluatedLambda<${node.param}: ...>";
 
-  # Evaluate a lambda expression
-  # evalLambdaWithArg :: AST -> AST -> Eval EvaluatedLambda
-  evalLambdaWithArg = node: argNode: {_, ...}:
-    _.do
-      (while {_ = "evaluating 'lambda' node with argument";})
-      {arg = forceEvalNodeM argNode;}
-      {addParamsToScope = evalNodeM node.param;}
-      ({addParamsToScope, arg, _}: _.saveScope ({_, ...}: _.do
-        (addParamsToScope arg)
-        (evalNodeM node.body)));
+          applyM = argNode: {_, ...}: _.do
+            (while {_ = "applying ${self}";})
+            {arg = evalNodeM argNode;}
+            ({arg, _, ...}:
+              _.pure (
+                bodyThunk.setBefore ({_, ...}: _.do
+                  (while {_ = "before applying ${self}";})
+                  # Evaluate the defaults in the saved context of the body,
+                  # which should have the same view of the current scope as the param list.
+                  {paramScope = evalParamWithArg node.param arg;}
+                  ({paramScope, _}: _.do
+                    (while {_ = _b_ ''
+                      before adding param scope to lambda body:
+                      ${_ph_ paramScope}
+                    '';})
+                    (appendScope paramScope)))));
+
+          asLambda = arg: toNix (Eval.do (self.applyM arg));
+        })));
 
   isApplicable = x: builtins.isFunction x || x ? __functor || isEvaluatedLambda x;
 
@@ -933,7 +922,6 @@ rec {
       (while {_ = "applying evaluated function to unevaluated argument";})
       ( # If we are able to remain in the Eval monad, do not force the lambda.
         if isEvaluatedLambda func then func.applyM argNode
-        # If we are able to remain in the Eval monad, do not force the lambda.
         # First apply __functor self monadically, then again with the argument.
         else {_, ...}: _.do
           {arg = evalNodeM argNode;}
@@ -956,14 +944,13 @@ rec {
            ( ${_ph_ argNode} ))
         '';
       })
-      ( if func_.nodeType == "lambda" then evalLambdaWithArg func_ argNode
-        else {_, ...}: _.do
-          {func = if isEvaluatedLambda func_ || builtins.isFunction func_                                                                                                                                                     
-                  then pure func_                                                                                                                                                                                             
-                  else forceEvalNodeM func_;}    
-          ({func, _}: _.do
-            (guardApplicable func)
-            (apply1 func argNode)));
+      ({_, ...}: _.do
+        {func = if isEvaluatedLambda func_ || builtins.isFunction func_                                                                                                                                                     
+                then pure func_                                                                                                                                                                                             
+                else forceEvalNodeM func_;}    
+        ({func, _}: _.do
+          (guardApplicable func)
+          (apply1 func argNode)));
 
   # Evaluate function application.
   # evalApplication :: AST -> Eval a

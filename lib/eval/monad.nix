@@ -192,26 +192,34 @@ rec {
   mkThunk = thunkId: node: {_, ...}:
     let _self_ = _;
     in _self_.do
+      (guard (!(isThunk node)) (RuntimeError ''
+        mkThunk: expected a non-thunk node but got ${_p_ node}
+      ''))
       {scope = getScope;}
-      ({scope, _}: _.pure (lib.fix (self: {
-        __isThunk = true;
-        inherit thunkId;
-        inherit (node) nodeType;
-        __toString = self: "<CODE#${thunkId}|${self.nodeType}|nested=${_p_ (isThunk node)}>";
+      ({scope, _}: _.pure (
+        let 
+          mk = thunkCache: before: lib.fix (self: {
+            __isThunk = true;
+            inherit thunkId;
+            inherit (node) nodeType;
+            __toString = self: "<CODE#${thunkId}|${self.nodeType}>";
 
-        runWithCacheM = thunkCache: {_}:
-          _.saveScope (_self_.do
-            (while {_ = "forcing ${self} in runWithCacheM with cache:\n${thunkCache}";})
-            (setScope scope)
-            (setThunkCache thunkCache)
-            (eval.ast.forceEvalNodeM node));
+            setBefore = before: mk thunkCache before;
+            setThunkCache = thunkCache: mk thunkCache before;
 
-        runWithoutCacheM = {_}:
-          _.saveScope (_self_.do
-            (while {_ = "forcing ${self} in runWithoutCacheM";})
-            (setScope scope)
-            (eval.ast.forceEvalNodeM node));
-      })));
+            # Run the thunk with the given monadic state and extra scope.
+            runThunk = {_, ...}:
+              _.saveScope (_self_.do
+                (while {_ = _b_ ''
+                  forcing ${self} in runThunk with thunkCache:
+                  ${thunkCache}
+                '';})
+                (setScope scope)
+                (when (thunkCache != null) (setThunkCache thunkCache))
+                (when (before != null) (before))
+                (eval.ast.forceEvalNodeM node));
+          });
+        in mk null null));
 
   maybeThunk = node: if isThunk node then pure node else Thunk node;
 
@@ -309,7 +317,7 @@ rec {
                   ''; 
                 })
                 # Run the thunk with the cache and get both value and updated cache
-                {result = thunk.runWithCacheM thunkCache;}
+                {result = (thunk.setThunkCache thunkCache).runThunk;}
                 ({result, _}: _.do
                   # Get the updated cache from the state after evaluation
                   {updatedCache = getThunkCache;}
@@ -840,12 +848,20 @@ rec {
               unless = this: cond: m: if !cond then this.bind m else this.pure unit;
               # Supports extra source printing info via while {_ = "...";}, or just while "..."
               whileV = this: v: s_:
-                let s = 
-                  if isAttrs s_ then _b_ (with ansi; ''
-                    ${style [fg.black italic] "@${let p = (debuglib.pos.file s_)._; in "${p.file}:${toString p.line}"}"}
-                        ${_h_ ((style [fg.grey] "↳ │ ") + (_ls_ (mapTailLines (line: "  ${style [fg.grey] "│"} ${line}") (s_._))))}
-                  '')
-                  else s_;
+                with ansi;
+                let
+                  div = style [fg.grey] "│";
+                  extra = this.e.case {
+                    Left = style [fg.red];
+                    Right = a: style [fg.green] (getT a);
+                  };
+                  s = 
+                    if isAttrs s_ then _b_ (''
+                      ${style [fg.black italic] "@${let p = (debuglib.pos.file s_)._; in "${p.file}:${toString p.line}"}"} ${div} ${extra}
+                          ${_h_ ((style [fg.grey] "↳ │ ") + (_ls_ (mapTailLines (line: "  ${style [fg.grey] "│"} ${line}") (s_._))))}
+                    '')
+                    else s_;
+
                 # Add the stack logging to the monadic value itself
                 in log.while s (
                   # Add runtime tracing to the resolution of the bind only
@@ -1094,8 +1110,9 @@ rec {
     thunkId = toString thunkId;
     __isThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
-    runWithCacheM = collective-lib.tests.expect.anyLambda;
-    runWithoutCacheM = collective-lib.tests.expect.anyLambda;
+    runThunk = collective-lib.tests.expect.anyLambda;
+    setBefore = collective-lib.tests.expect.anyLambda;
+    setThunkCache = collective-lib.tests.expect.anyLambda;
   };
 
   expectEvalError = with tests; expectEvalErrorWith expect.noLambdasEq;
