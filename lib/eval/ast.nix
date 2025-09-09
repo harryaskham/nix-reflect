@@ -1136,7 +1136,7 @@ rec {
          _20_lambda._00_define = testRoundTripLazy "(a: a)" expect.anyLambda;
          _20_lambda._01_apply = testRoundTripLazy "(a: a) 1" 1;
          _21_lambdaCurry = testRoundTripLazy "(a: b: a + b) 1 2" 3;
-         _22_lambdaClosure = testRoundTripLazy "let a = 1; f = b: a + b; in let a = 100; in f 2" 3;
+         _22_lambdaClosure = testRoundTripLazy "let a = 1; f = b: a + b; in let a = 100; in a + f 2" 3;
          #_23_lambdaRecDefaults = testRoundTripLazy "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
