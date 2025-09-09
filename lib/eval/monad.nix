@@ -855,11 +855,13 @@ rec {
                     Right = a: style [fg.green] (getT a);
                   };
                   s = 
-                    if isAttrs s_ then _b_ (''
+                    # End ansi to avoid printf buffering
+                    ansi.end
+                    + (if isAttrs s_ then _b_ (''
                       ${style [fg.black italic] "@${let p = (debuglib.pos.file s_)._; in "${p.file}:${toString p.line}"}"} ${div} ${extra}
                           ${_h_ ((style [fg.grey] "↳ │ ") + (_ls_ (mapTailLines (line: "  ${style [fg.grey] "│"} ${line}") (s_._))))}
                     '')
-                    else s_;
+                    else s_);
 
                 # Add the stack logging to the monadic value itself
                 in log.while s (

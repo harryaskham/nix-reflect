@@ -849,13 +849,13 @@ rec {
             (p: {_, ...}:
               let name = getParamName p;
               in _.when (!(arg ? ${name})) (appendScope { ${name} = p.default; }))
-            node.attrs)
+            (defaultParamAttrs node.attrs))
           # Thunkify the defaults for the return value
           {defaults = traverse
             (p: {_, ...}:
               let name = getParamName p;
               in _.when (!(arg ? ${name})) (appendScope { ${name} = Thunk p.default; }))
-            node.attrs;}
+            (defaultParamAttrs node.attrs);}
           # Return the combined parameters.
           ({defaults, _}: _.pure (mergeAttrsList (defaults ++ arg)))))));
 
