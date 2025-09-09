@@ -1117,7 +1117,7 @@ rec {
   _tests = with tests; suite {
 
     evalAST = {
-      _00_smoke = solo {
+      _00_smoke = {
         _00_int = testRoundTripSame "1" 1;
         _01_float = testRoundTripSame "1.0" 1.0;
         _02_string = testRoundTripSame ''"hello"'' "hello";
