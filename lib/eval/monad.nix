@@ -179,7 +179,7 @@ rec {
   force = x: {_}:
     if !(isThunk x)
       then _.do
-        (while {_ = "not forcing a non-thunk of type ${lib.typeOf x}";})
+        (whileV 4 {_ = "not forcing a non-thunk of type ${lib.typeOf x}";})
         (pure x)
       else _.do
         (while {_ = "forcing ${x} via thunk cache";})
