@@ -1174,7 +1174,7 @@ rec {
         _23_lambdaAttrs = testRoundTripSame "({a}: a) { a = 1; }" 1;
         _24_lambdaDefaults = testRoundTripSame "({a ? 1, b ? 2}: a + b) {}" 3;
         _25_lambdaRecDefaults.overrideBoth = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { a = 2; b = 3; }" 5;
-        _25_lambdaRecDefaults.overrideA = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { a = 2; }" 3;
+        _25_lambdaRecDefaults.overrideA = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { a = 2; }" 5;
         _25_lambdaRecDefaults.overrideB = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) { b = 3; }" 4;
         _25_lambdaRecDefaults.overrideNone = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
