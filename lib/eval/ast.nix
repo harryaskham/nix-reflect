@@ -1093,83 +1093,71 @@ rec {
       in expectation result ((Either EvalError (getT expected)).Right expected);
   };
 
+  testRoundTripBoth = expr: expectedLazy: expectedStrict: {
+    lazy = testRoundTripLazy expr expectedLazy;
+    strict = testRoundTrip expr expectedStrict;
+  };
+  testRoundTripSame = expr: expected: testRoundTripBoth expr expected expected;
+
   _tests = with tests; suite {
 
     # Tests for evalAST round-trip property
     evalAST = {
-      _00_smoke._00_lazy = solo {
-        _00_int = testRoundTripLazy "1" 1;
-         _01_float = testRoundTripLazy "1.0" 1.0;
-         _02_string = testRoundTripLazy ''"hello"'' "hello";
-         _03_indentString = testRoundTripLazy "''hello''" "hello";
-         _04_true = testRoundTripLazy "true" true;
-         _05_false = testRoundTripLazy "false" false;
-         _06_null = testRoundTripLazy "null" null;
-         _07_list.empty = testRoundTripLazy "[]" [];
-         _07_list.full = testRoundTripLazy "[1 2 3]" [(CODE 0 "int") (CODE 1 "int") (CODE 2 "int")];
-         _08_attrSet.empty = testRoundTripLazy "{}" {};
-         _08_attrSet.full = testRoundTripLazy "{a = 1;}" {a = CODE 0 "int";};
-         _09_attrPath = testRoundTripLazy "{a = 1;}.a" 1;
-         _10_attrPathOr = testRoundTripLazy "{a = 1;}.b or 2" 2;
-         _11_inheritsConst = testRoundTripLazy "{ inherit ({a = 1;}) a; }" {a = CODE 0 "int";};
-         _12_recAttrSetNoRecursion = testRoundTripLazy "rec { a = 1; }" {a = CODE 0 "int";};
-         _13_recAttrSetRecursion._00_define =
-          testRoundTripLazy "rec { a = 1; b = a; }" {a = CODE 0 "int"; b = CODE 1 "identifier";};
-         _13_recAttrSetRecursion._01_access =
-          testRoundTripLazy "(rec { a = 1; b = a; }).b" 1;
-         _13_recAttrSetRecursion._02_defineBackwards =
-           testRoundTripLazy "rec { a = b; b = 1; }" {a = CODE 0 "identifier"; b = CODE 1 "int";};
-         _13_recAttrSetRecursion._03_accessBackwards =
-           testRoundTripLazy "(rec { a = b; b = 1; }).a" 1;
-         _14_recAttrSetNested =
-           testRoundTripLazy "rec { a = 1; b = { c = a; }; }" { a = CODE 0 "int"; b = CODE 1 "attrs"; };
-         _15_recAttrSetNestedRec =
-          testRoundTripLazy "rec { a = 1; b = rec { c = a; }; }" { a = CODE 0 "int"; b = CODE 1 "attrs"; };
-         _16_letIn = testRoundTripLazy "let a = 1; in a" 1;
-         # TODO: Not sufficiently lazy
-         _17_letInNested =
-          testRoundTripLazy "let a = 1; in let b = a + 1; in [a b]" [(CODE 2 "identifier") (CODE 3 "identifier")];
-         _18_withs =
-          testRoundTripLazy "with {a = 1;}; a" 1;
-         _19_withsNested =
-          testRoundTripLazy "with {a = 1;}; with {b = a + 1;}; [a b]" [(CODE 2 "identifier") (CODE 3 "identifier")];
-         _20_lambda._00_define = testRoundTripLazy "(a: a)" expect.anyLambda;
-         _20_lambda._01_apply = testRoundTripLazy "(a: a) 1" 1;
-         _21_lambdaCurry = testRoundTripLazy "(a: b: a + b) 1 2" 3;
-         _22_lambdaClosure = testRoundTripLazy "let a = 1; f = b: a + b; in let a = 100; in a + f 2" 3;
-         #_23_lambdaRecDefaults = testRoundTripLazy "({a ? 1, b ? a + 1}: a + b) {}" 3;
-      };
-
-      _00_smoke._01_strict = {
-        _00_int = testRoundTrip "1" 1;
-        _01_float = testRoundTrip "1.0" 1.0;
-        _02_string = testRoundTrip ''"hello"'' "hello";
-        _03_indentString = testRoundTrip "''hello''" "hello";
-        _04_true = testRoundTrip "true" true;
-        _05_false = testRoundTrip "false" false;
-        _06_null = testRoundTrip "null" null;
-        _07_list.empty = testRoundTrip "[]" [];
-        _07_list.full = testRoundTrip "[1 2 3]" [1 2 3];
-        _08_attrSet.empty = testRoundTrip "{a = 1;}" {a = 1;};
-        _08_attrSet.full = testRoundTrip "{a = 1;}" {a = 1;};
-        _09_attrPath = testRoundTrip "{a = 1;}.a" 1;
-        _10_attrPathOr = testRoundTrip "{a = 1;}.b or 2" 2;
-        _11_inheritsConst = testRoundTrip "{ inherit ({a = 1;}) a; }" {a = 1;};
-        _12_recAttrSetNoRecursion = testRoundTrip "rec { a = 1; }" {a = 1;};
-        _13_recAttrSetRecursion.access = testRoundTrip "(rec { a = 1; b = a; }).b" 1;
-        _13_recAttrSetRecursionBackwards._00_define = testRoundTrip "rec { a = b; b = 1; }" {a = 1; b = 1;};
-        _13_recAttrSetRecursionBackwards._01_access = testRoundTrip "(rec { a = b; b = 1; }).a" 1;
-        _14_recAttrSetNested = testRoundTrip "rec { a = 1; b = { c = a; }; }" { a = 1; b = { c = 1; };};
-        _15_recAttrSetNestedRec = testRoundTrip "rec { a = 1; b = rec { c = a; }; }" { a = 1; b = { c = 1; };};
-        _16_letIn = testRoundTrip "let a = 1; in a" 1;
-        _17_letInNested = testRoundTrip "let a = 1; in let b = a + 1; in [a b]" [1 2];
-        _18_withs = testRoundTrip "with {a = 1;}; a" 1;
-        _19_withsNested = testRoundTrip "with {a = 1;}; with {b = a + 1;}; [a b]" [1 2];
-        _20_lambda.define = testRoundTrip "(a: a)" expect.anyLambda;
-        _20_lambda.apply = testRoundTrip "(a: a) 1" 1;
-        _21_lambdaCurry = testRoundTrip "(a: b: a + b) 1 2" 3;
-        #_22_lambdaClosure = testRoundTrip "let a = 1; f = b: a + b; in let a = 100; in f 2" 3;
-        #_23_lambdaRecDefaults = testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3;
+      _00_smoke = solo {
+        _00_int = testRoundTripSame "1" 1;
+        _01_float = testRoundTripSame "1.0" 1.0;
+        _02_string = testRoundTripSame ''"hello"'' "hello";
+        _03_indentString = testRoundTripSame "''hello''" "hello";
+        _04_true = testRoundTripSame "true" true;
+        _05_false = testRoundTripSame "false" false;
+        _06_null = testRoundTripSame "null" null;
+        _07_list.empty = testRoundTripSame "[]" [];
+        _07_list.full = 
+          testRoundTripBoth "[1 2 3]"
+            [(CODE 0 "int") (CODE 1 "int") (CODE 2 "int")]
+            [1 2 3];
+        _08_attrSet.empty = testRoundTripSame "{}" {};
+        _08_attrSet.full = testRoundTripBoth "{a = 1;}" {a = CODE 0 "int";} {a = 1;};
+        _09_attrPath = testRoundTripSame "{a = 1;}.a" 1;
+        _10_attrPathOr = testRoundTripSame "{a = 1;}.b or 2" 2;
+        _11_inheritsConst = testRoundTripBoth "{ inherit ({a = 1;}) a; }" {a = CODE 0 "int";} {a = 1;};
+        _12_recAttrSetNoRecursion = testRoundTripBoth "rec { a = 1; }" {a = CODE 0 "int";} {a = 1;};
+        _13_recAttrSetRecursion._00_define =
+          testRoundTripBoth "rec { a = 1; b = a; }"
+            {a = CODE 0 "int"; b = CODE 1 "identifier";}
+            {a = 1; b = 1;};
+        _13_recAttrSetRecursion._01_access =
+          testRoundTripSame "(rec { a = 1; b = a; }).b" 1;
+        _13_recAttrSetRecursion._02_defineBackwards =
+          testRoundTripBoth "rec { a = b; b = 1; }"
+            {a = CODE 0 "identifier"; b = CODE 1 "int";}
+            {a = 1; b = 1;};
+        _13_recAttrSetRecursion._03_accessBackwards =
+          testRoundTripSame "(rec { a = b; b = 1; }).a" 1;
+        _14_recAttrSetNested =
+          testRoundTripBoth "rec { a = 1; b = { c = a; }; }"
+            { a = CODE 0 "int"; b = CODE 1 "attrs"; }
+            {a = 1; b = {c = 1;};};
+        _15_recAttrSetNestedRec =
+         testRoundTripBoth "rec { a = 1; b = rec { c = a; }; }"
+           { a = CODE 0 "int"; b = CODE 1 "attrs"; }
+           {a = 1; b = {c = 1;};};
+        _16_letIn = testRoundTripSame "let a = 1; in a" 1;
+        _17_letInNested =
+         testRoundTripBoth "let a = 1; in let b = a + 1; in [a b]"
+           [(CODE 2 "identifier") (CODE 3 "identifier")]
+           [1 2];
+        _18_withs =
+         testRoundTripSame "with {a = 1;}; a" 1;
+        _19_withsNested =
+         testRoundTripBoth "with {a = 1;}; with {b = a + 1;}; [a b]"
+           [(CODE 2 "identifier") (CODE 3 "identifier")]
+           [1 2];
+        _20_lambda._00_define = testRoundTripSame "(a: a)" expect.anyLambda;
+        _20_lambda._01_apply = testRoundTripSame "(a: a) 1" 1;
+        _21_lambdaCurry = testRoundTripSame "(a: b: a + b) 1 2" 3;
+        _22_lambdaClosure = testRoundTripSame "let a = 1; f = b: a + b; in let a = 100; in a + f 2" 103;
+        #_23_lambdaRecDefaults = testRoundTripLazy "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
       _01_allFeatures =
