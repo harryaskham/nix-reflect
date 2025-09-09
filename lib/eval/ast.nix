@@ -1157,7 +1157,7 @@ rec {
         _20_lambda._01_apply = testRoundTripSame "(a: a) 1" 1;
         _21_lambdaCurry = testRoundTripSame "(a: b: a + b) 1 2" 3;
         _22_lambdaClosure = testRoundTripSame "let a = 1; f = b: a + b; in let a = 100; in a + f 2" 103;
-        #_23_lambdaRecDefaults = testRoundTripLazy "({a ? 1, b ? a + 1}: a + b) {}" 3;
+        _23_lambdaRecDefaults = testRoundTripSame "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
       _01_allFeatures =
