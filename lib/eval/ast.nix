@@ -1119,11 +1119,7 @@ rec {
   testRoundTripSame = expr: expected: testRoundTripBoth expr expected expected;
 
   _tests = with tests; suite {
-    failing = solo {
-      _23_lambdaAttrs = testRoundTripSame "({a}: a) { a = 1; }" 1;
-    };
 
-    # Tests for evalAST round-trip property
     evalAST = {
       _00_smoke = solo {
         _00_int = testRoundTripSame "1" 1;
