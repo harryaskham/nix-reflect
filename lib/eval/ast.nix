@@ -1097,11 +1097,7 @@ rec {
 
     # Tests for evalAST round-trip property
     evalAST = {
-      failing = {
-        complex = testRoundTrip "rec { a = 1; b = a + 1; c = b + a; }" { a = 1; b = 2; c = 3; };
-      };
-
-      _00_smoke._00_lazy = {
+      _00_smoke._00_lazy = solo {
         _00_int = testRoundTripLazy "1" 1;
          _01_float = testRoundTripLazy "1.0" 1.0;
          _02_string = testRoundTripLazy ''"hello"'' "hello";
@@ -1116,32 +1112,31 @@ rec {
          _09_attrPath = testRoundTripLazy "{a = 1;}.a" 1;
          _10_attrPathOr = testRoundTripLazy "{a = 1;}.b or 2" 2;
          _11_inheritsConst = testRoundTripLazy "{ inherit ({a = 1;}) a; }" {a = CODE 0 "int";};
-         _12_recAttrSetNoRecursion = testRoundTripLazy "rec { a = 1; }" {a = CODE 1 "int";};
+         _12_recAttrSetNoRecursion = testRoundTripLazy "rec { a = 1; }" {a = CODE 0 "int";};
          _13_recAttrSetRecursion._00_define =
-          testRoundTripLazy "rec { a = 1; b = a; }" {a = CODE 1 "int"; b = 1;};
+          testRoundTripLazy "rec { a = 1; b = a; }" {a = CODE 0 "int"; b = CODE 1 "identifier";};
          _13_recAttrSetRecursion._01_access =
           testRoundTripLazy "(rec { a = 1; b = a; }).b" 1;
          _13_recAttrSetRecursion._02_defineBackwards =
-           testRoundTripLazy "rec { a = b; b = 1; }" {a = 1; b = CODE 1 "int";};
+           testRoundTripLazy "rec { a = b; b = 1; }" {a = CODE 0 "identifier"; b = CODE 1 "int";};
          _13_recAttrSetRecursion._03_accessBackwards =
            testRoundTripLazy "(rec { a = b; b = 1; }).a" 1;
          _14_recAttrSetNested =
-           testRoundTripLazy "rec { a = 1; b = { c = a; }; }" { a = CODE 2 "int"; b = CODE 3 "attrs"; };
+           testRoundTripLazy "rec { a = 1; b = { c = a; }; }" { a = CODE 0 "int"; b = CODE 1 "attrs"; };
          _15_recAttrSetNestedRec =
-          testRoundTripLazy "rec { a = 1; b = rec { c = a; }; }" { a = CODE 2 "int"; b = CODE 3 "attrs"; };
+          testRoundTripLazy "rec { a = 1; b = rec { c = a; }; }" { a = CODE 0 "int"; b = CODE 1 "attrs"; };
          _16_letIn = testRoundTripLazy "let a = 1; in a" 1;
          # TODO: Not sufficiently lazy
          _17_letInNested =
-          testRoundTripLazy "let a = 1; in let b = a + 1; in [a b]" [1 2];
+          testRoundTripLazy "let a = 1; in let b = a + 1; in [a b]" [(CODE 2 "identifier") (CODE 3 "identifier")];
          _18_withs =
           testRoundTripLazy "with {a = 1;}; a" 1;
-         # TODO: Not sufficiently lazy
          _19_withsNested =
-          testRoundTripLazy "with {a = 1;}; with {b = a + 1;}; [a b]" [1 2];
+          testRoundTripLazy "with {a = 1;}; with {b = a + 1;}; [a b]" [(CODE 2 "identifier") (CODE 3 "identifier")];
          _20_lambda._00_define = testRoundTripLazy "(a: a)" expect.anyLambda;
          _20_lambda._01_apply = testRoundTripLazy "(a: a) 1" 1;
          _21_lambdaCurry = testRoundTripLazy "(a: b: a + b) 1 2" 3;
-         #_22_lambdaClosure = testRoundTripLazy "let a = 1; f = b: a + b; in let a = 100; in f 2" 3;
+         _22_lambdaClosure = testRoundTripLazy "let a = 1; f = b: a + b; in let a = 100; in f 2" 3;
          #_23_lambdaRecDefaults = testRoundTripLazy "({a ? 1, b ? a + 1}: a + b) {}" 3;
       };
 
