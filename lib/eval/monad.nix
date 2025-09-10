@@ -2,7 +2,7 @@
 
 let 
   inherit (nix-reflect) parser debuglib eval;
-  inherit (parser) parse;
+  inherit (parser) parse isAST;
   inherit (collective-lib.typed.script-utils.ansi-utils) ansi;
 in 
   with collective-lib.typed;
@@ -182,7 +182,7 @@ rec {
         (whileV 4 {_ = "not forcing a non-thunk of type ${lib.typeOf x}";})
         (pure x)
       else _.do
-        (while {_ = "forcing ${x} via thunk cache";})
+        (whileV 4 {_ = "forcing ${x} via thunk cache";})
         # Force thunks, persisting the value in the cache upon first force.
         {thunkCache = getThunkCache;}
         ({thunkCache, _}: _.bind (thunkCache.forceThunk x));
@@ -191,8 +191,8 @@ rec {
 
   mkThunk = thunkId: node: {_, ...}:
     _.do
-      (guard (!(isThunk node)) (RuntimeError ''
-        mkThunk: expected a non-thunk node but got ${_p_ node}
+      (guard (isAST node) (RuntimeError ''
+        mkThunk: expected an AST node but got ${_p_ node}
       ''))
       {scope = getScope;}
       ({scope, _}: _.pure (
@@ -209,9 +209,7 @@ rec {
             # Run the thunk with the given monadic state and extra scope.
             runThunk = {_, ...}:
               _.saveScope (_.do
-                (while {_ = _b_ ''
-                  forcing ${self} in runThunk
-                '';})
+                (whileV 3 {_ = _b_ ''computing thunk ${self}'';})
                 (setScope scope)
                 (when (thunkCache != null) (setThunkCache thunkCache))
                 (when (before != null) (before))
@@ -272,7 +270,7 @@ rec {
           in _.do
             {thunk = mkThunk thunkId node;}
             ({thunk, _}: _.do
-              (whileV 3 {_ = "writing ${thunk} into cache:\n${this}";})
+              (whileV 4 {_ = "writing ${thunk} into cache:\n${this}";})
               (setThunkCache (ThunkCache {
                 inherit (this) values hits misses;
                 thunks = this.thunks // { ${thunkId} = thunk; };
@@ -287,7 +285,7 @@ rec {
           let thunkId = thunk.thunkId;
               thunkCache = this;
           in {_}: _.do
-            (while {_ = "forcing ${thunk} in forceThunk";})
+            (whileV 3 {_ = "forcing thunk ${thunk}";})
             (guard (thunkCache.thunks ? ${thunkId}) (MissingThunkError ''
               ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
                 ${thunkCache}
@@ -336,29 +334,35 @@ rec {
     check = x: x ? __isEvalState;
     mempty = _: initState;
 
-    __functor = self: {scope ? initScope, thunkCache ? ThunkCache {}}: (lib.fix (this: {
-      inherit scope thunkCache;
-      publicScope = {}: removeAttrs scope ["__internal__"];
+    __functor = self:
+      {scope, thunkCache, stack} @ thisArgs:
+      (lib.fix (this: {
+        inherit scope thunkCache stack;
+        publicScope = {}: removeAttrs scope ["__internal__"];
 
-      __type = EvalState;
-      __isEvalState = true;
-      __toString = self: with script-utils.ansi-utils.ansi; box {
-        header = style [fg.cyan bold] "EvalState";
-        body = joinVerticalSep " " [
-          (this.printScope {margin = zeros;})
-          (this.thunkCache.print {margin = zeros;})
-        ];
-      };
-      printScope = args: with script-utils.ansi-utils.ansi; box ({
-        header = style [bold] "Scope";
-        body = _b_ ''
-          ${_ph_ (this.scope)}
-        '';
-      } // args);
+        __type = EvalState;
+        __isEvalState = true;
+        __toString = self: with script-utils.ansi-utils.ansi; box {
+          header = style [fg.cyan bold] "EvalState";
+          body = joinVerticalSep " " [
+            (this.printScope {margin = zeros;})
+            (this.thunkCache.print {margin = zeros;})
+          ];
+        };
+        printScope = args: with script-utils.ansi-utils.ansi; box ({
+          header = style [bold] "Scope";
+          body = _b_ ''
+            ${_ph_ (this.scope)}
+          '';
+        } // args);
 
-      fmap = f: EvalState { scope = f scope; inherit (this) thunkCache; };
-    }));
-  };
+        setScope = scope: EvalState (thisArgs // { inherit scope; });
+        setThunkCache = thunkCache: EvalState (thisArgs // { inherit thunkCache; });
+        setStack = stack: EvalState (thisArgs // { inherit stack; });
+
+        fmap = f: this.setScope (f this.scope);
+      }));
+    };
 
   resetScope = {_}: _.do
     {scope = getScope;}
@@ -368,7 +372,16 @@ rec {
     {scope = getScope;}
     ({scope, _}: _.bind (scope.__internal__.initScopeM));
 
-  mkInitEvalState = scope: EvalState { scope = mkInitScope scope; };
+  mkInitEvalState = scope: EvalState {
+    scope = mkInitScope scope;
+    thunkCache = ThunkCache {};
+    stack = Stack {
+      maxDepth = 100;
+      startTimestamp = builtins.currentTime;
+      stackFrames = [];
+      completedFrames = [];
+    };
+  };
 
   mkInitScope = scope: lib.fix (self: 
     scope // {
@@ -422,6 +435,97 @@ rec {
       toString = self.builtins.toString;
     };
   });
+
+  since = t: builtins.currentTime - t;
+
+  Stack = { maxDepth, startTimestamp, stackFrames, completedFrames } @ args:
+    lib.fix (self: seqId {
+      inherit maxDepth startTimestamp stackFrames completedFrames;
+
+      elapsed = {}: since self.startTimestamp;
+      depth = size self.stackFrames;
+
+      __toString = self: self.printCompleted {};
+      printTrace = {}: _ls_ (map (f: f.printTrace {}) (reverseList self.stackFrames));
+
+      printCompleted = {}: _b_ ''
+        Completed | ${toString (size self.completedFrames)} frames
+        ${_h_ (_ls_ (map toString self.completedFrames))}
+      '';
+
+      push = node:
+        assert that (self.depth < self.maxDepth) ''
+          Stack.push: depth limit reached (${toString self.maxDepth})
+
+          ${self}
+        '';
+        Stack (args // {
+          stackFrames = [
+            (StackFrame {
+              inherit node;
+              inherit (self) depth;
+              startTimestamp = builtins.currentTime;
+              endTimestamp = null;
+            })
+          ] ++ self.stackFrames;
+       });
+
+      pop = {}:
+        if self.stackFrames == [] 
+        then throw "Stack.pop: stack is empty"
+        else
+          let sfs = snoc self.stackFrames;
+              completedHead = sfs.head.complete {};
+          in {
+            head = completedHead;
+            tail = Stack (args // {
+              stackFrames = sfs.tail;
+              completedFrames = self.completedFrames ++ [completedHead];
+            });
+          };
+    });
+
+  StackFrame = {startTimestamp, endTimestamp, node, depth} @ args:
+    lib.fix (self: seqId {
+      inherit node depth startTimestamp endTimestamp;
+
+      elapsed = {}: since self.startTimestamp;
+      __toString = self: with ansi; _b_ ''
+        ${style [fg.grey] (replicate (self.depth + 1) ">")} ${style [fg.grey bold] self.node.nodeType}
+      '';
+      printTrace = {}: _b_ ''
+        ${self}
+        ${self.node.__src}
+      '';
+
+      complete = {}:
+        if self.endTimestamp != null then throw "StackFrame.complete: endTimestamp already set"
+        else StackFrame (args // {
+          endTimestamp = builtins.currentTime;
+        });
+    });
+
+  getStack = {_, ...}:
+    _.do
+      (whileV 5 {_ = "getting stack";})
+      {state = get;}
+      ({_, state}: _.pure state.stack);
+
+  pushStack = node: {_, ...}:
+    _.do
+      (whileV 5 {_ = "pushing stack frame:\n${node}";})
+      {state = get;}
+      ({state, _}: _.set (state.setStack (state.stack.push node)));
+
+  popStack = {_, ...}:
+    _.do
+      (whileV 5 {_ = "popping stack frame";})
+      {state = get;}
+      ({state, _}: 
+        let popped = state.stack.pop {};
+        in _.do
+          (whileV 5 {_ = "popped stack frame:\n${popped.head}";})
+          (set (state.setStack popped.tail)));
 
   Unit = {
     __toString = self: "Unit";
@@ -540,11 +644,11 @@ rec {
       mkNormalisedDoStatement statement (soloName statement) (addEllipsis (soloValue statement));
   };
 
+  enableDoStatementRHSPrinting = true;
   tryPrintStatementRHS = M: f:
     let rhs = 
-      #if attrNames (requiredArgs f) == ["_"] then try (f {_ = M.pure unit;}) (_: "...")
-      #else "<unapplicable RHS>";
-      "<unapplicable RHS>";
+      if enableDoStatementRHSPrinting then try (f (nullRequiredArgs f // {_ = M.pure unit;})) (_: "<RHS eval failed>")
+      else "<applicable RHS>";
     in if isString rhs then rhs else printStatement M rhs;
 
   printStatement = M: 
@@ -820,8 +924,13 @@ rec {
               mapEither = this: f: this.setEither (f this.e);
               liftEither = this: e: if isEvalError e then this.throws e else this.pure e;
 
+              getStack = this: this.bind getStack;
+              pushStack = this: node: this.bind (pushStack node);
+              popStack = this: this.bind popStack;
+
               getThunkCache = this: this.bind getThunkCache;
-              setThunkCache = this: this.bind setThunkCache;
+              setThunkCache = this: thunkCache: this.bind (setThunkCache thunkCache);
+
               getScope = this: this.bind getScope;
               getPublicScope = this: this.bind getPublicScope;
               setScope = this: newScope: this.bind (setScope newScope);
@@ -829,7 +938,6 @@ rec {
               modifyPublicScope = this: f: this.bind (modifyPublicScope f);
               saveScope = this: f: this.bind (saveScope f);
               modifyScope = this: f: this.bind (modifyScope f);
-              prependScope = this: newScope: this.bind (prependScope newScope);
               appendScope = this: newScope: this.bind (appendScope newScope);
 
               getWithScope = this: this.bind getWithScope;
@@ -909,6 +1017,13 @@ rec {
                         ${_ph_ mb}
                     '';
                     mb.mapState (s: compose s this.s);
+                    #mb.mapState (s:
+                    #  let s' = compose s this.s;
+                    #  in 
+                    #  (state:
+                    #    let d = scopeDiffSimple (state.publicScope {});
+                    #        logF = if d == {} then id else (log.v 5).show ("scope after bind:\n${_p_ d}");
+                    #    in logF (s' state)));
                 };
 
               sq = this: b: this.bind (_: b);
@@ -916,7 +1031,7 @@ rec {
               # Set the value to the given error.
               throws = this:
                 e: assert that (is Error e) ''Eval.throws: expected Either value ${Error} but got ${_p_ e} of type ${getT e}'';
-                this.setEither (E.Left e);
+                this.setEither (E.Left (e // { __stackTrace = this.s'.stack.printTrace {}; }));
 
               # Catch specific error types and handle them with a recovery function
               # catch :: (EvalError -> Eval A) -> Eval A
@@ -977,7 +1092,7 @@ rec {
 
   getThunkCache = {_, ...}:
     _.do
-      (while {_ = "getting thunk cache";})
+      (whileV 4 {_ = "getting thunk cache";})
       {state = get;}
       ({_, state}: _.pure state.thunkCache);
 
@@ -985,28 +1100,25 @@ rec {
     _.do
       (while {_ = "setting thunk cache:\n${thunkCache}";})
       {state = get;}
-      ({_, state}: _.set (EvalState {inherit (state) scope; inherit thunkCache;}));
-
-  extendThunkCache = thunkCache: {_, ...}:
-    _.do
-      (while {_ = "extending thunk cache with :\n${thunkCache}";})
-      {state = get;}
-      ({_, state}: _.set (EvalState {inherit (state) scope; thunkCache = state.thunkCache.extend thunkCache;}));
+      ({_, state}: _.set (state.setThunkCache thunkCache));
 
   saveScope = f: {_, ...}:
     _.do
-      (while {_ = "with saved scope";})
+      (whileV 4 {_ = "saving scope";})
       {scope = getScope;}
+      (whileV 5 {_ = "with saved scope";})
       {a = f;}
       ({_, scope, a, ...}: _.do
+        (whileV 5 {_ = "restoring saved scope";})
         (setScope scope)
+        (whileV 5 {_ = "after restoring saved scope";})
         (pure a));
 
   setScope = scope: {_, ...}:
     _.do
-      (while {_ = "setting scope";})
+      (whileV 4 {_ = "setting scope";})
       {state = get;}
-      ({state, _}: _.set (EvalState {inherit scope; inherit (state) thunkCache;}));
+      ({state, _}: _.set (state.setScope scope));
 
   guardScopeUpdate = scope: {_, ...}: _.do
     (guard (!(scope ? __internal__)) (RuntimeError ''
@@ -1016,41 +1128,32 @@ rec {
 
   setPublicScope = scope: {_, ...}:
     _.do
-      (while {_ = "setting public scope";})
+      (whileV 4 {_ = "setting public scope";})
       (guardScopeUpdate scope)
       {state = get;}
-      ({state, _}: _.set (EvalState {
-        scope = scope // {inherit (state.scope) __internal__;};
-        inherit (state) thunkCache;
-      }));
+      ({state, _}: _.set (state.setScope (scope // {inherit (state.scope) __internal__;})));
   
   modifyScope = f: {_, ...}:
     _.do
-      (while {_ = "modifying scope";})
+      (whileV 4 {_ = "modifying scope";})
       (modify (s: s.fmap f));
 
   modifyPublicScope = f: {_, ...}:
     _.do
-      (while {_ = "modifying public scope";})
+      (whileV 4 {_ = "modifying public scope";})
       (modifyScope (scope: f scope // {inherit (scope) __internal__;}));
 
   getScope = {_, ...}:
     _.do
-      (while {_ = "getting scope";})
+      (whileV 4 {_ = "getting scope";})
       {state = get;}
       ({_, state}: _.pure state.scope);
 
   getPublicScope = {_, ...}:
     _.do
-      (while {_ = "getting public scope";})
+      (whileV 4 {_ = "getting public scope";})
       {state = get;}
       ({_, state}: _.pure (state.publicScope {}));
-
-  prependScope = newScope: {_, ...}:
-    _.do
-      (while {_ = "prepending scope";})
-      (guardScopeUpdate newScope)
-      (modifyScope (scope: newScope // scope));
 
   appendScope = newScope: {_, ...}:
     _.do
@@ -1059,7 +1162,7 @@ rec {
       (modifyScope (scope: scope // newScope));
 
   getWithScope = {_}: _.do
-    (while {_ = "getting 'with' scope";})
+    (whileV 4 {_ = "getting 'with' scope";})
     {scope = getScope;}
     ({scope, _}: _.pure scope.__internal__.withScope);
 
@@ -1083,23 +1186,25 @@ rec {
 
   traceWithScope = {_}: _.do
     {scope = getWithScope;}
-    ({scope, _}: _.whileV 3 {_ = "tracing 'with' scope:\n${_p_ scope}";});
+    ({scope, _}: _.whileV 1 {_ = "tracing 'with' scope:\n${_p_ scope}";});
 
   traceScope = {_}: _.do
     {scope = getScope;}
-    ({scope, _}: _.whileV 3 {_ = "tracing scope:\n${_p_ scope}";});
+    ({scope, _}: _.whileV 1 {_ = "tracing scope:\n${_p_ scope}";});
+
+  scopeDiff = scope: toReprDiff (diffShort 
+    (removeAttrs initScope ["__internal__" "builtins"])
+    (removeAttrs scope ["__internal__" "builtins"]));
+
+  scopeDiffSimple = scope: removeAttrs scope (attrNames initScope);
 
   trackScope' = msg: scope: {_, ...}:
-    let 
-      scopeDiff = toReprDiff (diffShort 
-        (removeAttrs initScope ["__internal__" "builtins"])
-        (removeAttrs scope ["__internal__" "builtins"]));
-    in _.whileV 3 {
+    _.whileV 1 {
       _ = _b_ ''
         tracking scope; ${msg}
         ${with script-utils.ansi-utils.ansi; box {
           header = style [bold] "Scope Diff";
-          body = _p_ scopeDiff;
+          body = _p_ (scopeDiff scope);
         }}
       '';
     };
@@ -1135,10 +1240,9 @@ rec {
     };
 
   removeBuiltins = s:
-    if EvalState.check s then EvalState { 
-      scope = removeAttrs s.scope ["builtins"];
-      inherit (s) thunkCache;
-    } else if isAttrs s then removeAttrs s ["builtins"] else s;
+    if EvalState.check s then s.setScope (removeAttrs s.scope ["builtins"])
+    else if isAttrs s then removeAttrs s ["builtins"]
+    else s;
 
   expectRun = {
     actual, 

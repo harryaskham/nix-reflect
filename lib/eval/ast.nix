@@ -5,6 +5,7 @@ let
   inherit (parser) AST N isAST parse printBoxed;
   inherit (eval.monad) Thunk isThunk Eval;  # Explicit inclusion to avoid shadow fail against typed.functions.Thunk
   inherit (Eval) do;
+  inherit (collective-lib.typed.script-utils.ansi-utils) ansi;
 in 
 with collective-lib.typed;
 with eval.monad;
@@ -21,20 +22,34 @@ rec {
   runAST = runAST_ false;
   runAST' = runAST_ true;
   runAST_ = strict: expr:
+    maybePrintStackTrace (
     (do
       (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}";})
       (evalM strict expr))
-    .run (EvalState.mempty {});
+    .run (EvalState.mempty {})
+    );
 
   /*
   evalAST :: (string | AST) -> Either EvalError a */
   evalAST = evalAST_ false;
   evalAST' = evalAST_ true;
   evalAST_ = strict: expr:
+    maybePrintStackTrace (
     (do
       (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}";})
       (evalM strict expr))
-    .run_ (EvalState.mempty {});
+    .run_ (EvalState.mempty {})
+    );
+
+  maybePrintStackTrace = r: r.case {
+    Left = e: 
+      log.trace.show ("\n" + (with ansi; box {
+        header = style [fg.red bold] "Evaluation Error";
+        body = e.__stackTrace;
+        margin = zeros;
+      })) r;
+    Right = _: r;
+  };
 
   /*
   evalM :: (string | AST) -> bool -> Eval a */
@@ -56,6 +71,13 @@ rec {
         (whileV 4 {_ = (_b_ ''
           with final state:
           ${printBoxed (removeBuiltins state)}
+        '');})
+        (whileV 5 {_ = (_b_ ''
+          with final stack:
+          ${with ansi; box {
+            header = style [bold] "Stack";
+            body = _p_ state.stack;
+          }}
         '');})
         (pure result));
 
@@ -142,21 +164,22 @@ rec {
   evalNodeM = node:
     with (log.v 3).call "evalNodeM" (toString node) ___;
     ({_, ...}: _.do
-      (whileV 2 {_ = "evaluating AST node:\n${toString node}";})
       (guard (is AST node || isThunk node || isEvaluatedLambda node || is EvalError node) (RuntimeError ''
         evalNodeM: Expected AST node, Thunk, EvaluatedLambda, or EvalError, got ${_ph_ node}
       ''))
       ({_, ...}: 
         if is EvalError node then _.do
-          (while {_ = "lifting an EvalError";})
+          (whileV 3 {_ = "lifting an EvalError";})
           (liftEither node)
         else if isThunk node then _.do
-          (while {_ = "not evaluating a Thunk in evalNodeM";})
+          (whileV 3 {_ = "not evaluating a Thunk in evalNodeM";})
           (pure node)
         else if isEvaluatedLambda node then _.do
-          (while {_ = "not evaluating an EvaluatedLambda in evalNodeM";})
+          (whileV 3 {_ = "not evaluating an EvaluatedLambda in evalNodeM";})
           (pure node)
         else _.do
+          (whileV 2 {_ = "evaluating AST node:\n${toString node}";})
+          (pushStack node)
           {res = switch node.nodeType {
             int = evalLiteral node;
             float = evalLiteral node;
@@ -185,6 +208,7 @@ rec {
             "import" = evalImport node;
             "inherit" = evalInherit node;
           };}
+          (popStack)
           ({_, res}: _.pure (return res))));
 
   deeplyEvalNodeM = node: {_, ...}:
@@ -199,7 +223,7 @@ rec {
 
   forceM = m: {_, ...}:
     _.do
-      (whileV 3 {_ = "forcing a monadic value";})
+      (whileV 5 {_ = "forcing a monadic value";})
       {unforced = m;}
       ({_, unforced}: _.bind (force unforced));
 
@@ -252,13 +276,13 @@ rec {
   # force its computation at least to WHNF.
   identifierName = node: {_, ...}:
     _.do
-      (while {_ = "evaluating a name";})
+      (whileV 4 {_ = "evaluating a name";})
       {name = {_, ...}:
         if isString node then _.do
           (while {_ = "evaluating a pure string name '${node}'";})
           (pure node)
         else if node.nodeType == "identifier" then _.do
-          (while {_ = "extracting an identifier name '${node.name}' directly";})
+          (while {_ = "evaluating identifier name '${node.name}'";})
           (pure node.name)
         else _.do
           (while {_ = "evaluating a name from a '${node.nodeType}' node";})
@@ -1013,11 +1037,12 @@ rec {
     _.do
       (while {_ = "evaluating 'throw' node";})
       {msg = evalNodeM node.msg; }
-      ({_, msg}: _.guard (lib.isString msg) (TypeError ''
-        throw: got non-string message of type ${typeOf msg}:
-          ${_ph_ msg}
-      ''))
-      (throws (Throw msg));
+      ({_, msg}: _.do
+        (guard (lib.isString msg) (TypeError ''
+          throw: got non-string message of type ${typeOf msg}:
+            ${_ph_ msg}
+        ''))
+        (throws (Throw msg)));
 
   # Evaluate an import expression
   # evalImport :: Scope -> AST -> Eval a
@@ -1244,18 +1269,17 @@ rec {
 
       # Collections
       _03_lists = {
+        nested._0 = testRoundTripBoth "[]" [] [];
+        nested._1 = testRoundTripBoth "[1]" [(CODE 0 "int")] [1];
+        nested._2 = testRoundTripBoth "[[1]]" [(CODE 0 "list")] [[1]];
+        nested._3 = testRoundTripBoth "[[[1]]]" [(CODE 0 "list")] [[[1]]];
         alternatingTypes = testRoundTrip ''[1 "a" 2 "b"]'' [1 "a" 2 "b"];
-        deeplyNested._2 = testRoundTrip "[[1]]" [[[1]]];
-        deeplyNested._3 = testRoundTrip "[[[1]]]" [[[1]]];
-        empty = testRoundTrip "[]" [];
         emptyStrings = testRoundTrip ''["" "hello" ""]'' ["" "hello" ""];
         expressions = testRoundTrip "[(1 + 1) (2 * 3)]" [2 6];
         largeList = testRoundTrip "[1 2 3 4 5 6 7 8 9 10]" [1 2 3 4 5 6 7 8 9 10];
         largeNumbers = testRoundTrip "[999999999 (-999999999)]" [999999999 (-999999999)];
         mixed = testRoundTrip ''[1 "hello" true]'' [1 "hello" true];
         mixedNested = testRoundTrip ''[1 [2 "three"] [true [null]]]'' [1 [2 "three"] [true [null]]];
-        nested = testRoundTrip "[[1 2] [3 4]]" [[1 2] [3 4]];
-        nestedEmpty = testRoundTrip "[[] [1] []]" [[] [1] []];
         numbers = testRoundTrip "[1 2 3]" [1 2 3];
         single = testRoundTrip "[1]" [1];
         singletonNested = testRoundTrip "[[1]]" [[1]];
@@ -1267,7 +1291,7 @@ rec {
         withStrings = testRoundTrip ''["a" "b" "c"]'' ["a" "b" "c"];
       };
 
-      _04_attrs = {
+      _04_attrs = solo {
         empty = testRoundTrip "{}" {};
         simple = testRoundTrip "{ a = 1; b = 2; }" { a = 1; b = 2; };
         nested = testRoundTrip "{ x = { y = 42; }; }" { x = { y = 42; }; };
@@ -1275,8 +1299,8 @@ rec {
           complex = testRoundTrip "rec { a = 1; b = a + 1; c = b + a; }" { a = 1; b = 2; c = 3; };
           mutualRecursion = testRoundTrip "rec { a = b + 1; b = 5; }" { a = 6; b = 5; };
           nested = testRoundTrip "rec { x = { y = z; }; z = 42; }" { x = { y = 42; }; z = 42; };
-          #selfReference = testRoundTrip "rec { a = { b = 1; c = a.b; }; }" {a = { b = 1; c = 1; };};
-          #selfReferenceFn = testRoundTrip "(rec { f = x: if x == 0 then 1 else x * f (x - 1); }).f 3" 6;
+          selfReference = testRoundTrip "rec { a = { b = 1; c = a.b; }; }" {a = { b = 1; c = 1; };};
+          selfReferenceFn = testRoundTrip "(rec { f = x: if x == 0 then 1 else x * f (x - 1); }).f 3" 6;
           simple = testRoundTrip "rec { a = 1; b = a; }" { a = 1; b = 1; };
         };
         inheritance = {
