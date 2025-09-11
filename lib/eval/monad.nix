@@ -203,7 +203,13 @@ rec {
             inherit (node) nodeType;
             __toString = self: "<CODE#${thunkId}|${self.nodeType}>";
 
-            setBefore = before: mk thunkCache before;
+            addBefore = before':
+              mk thunkCache 
+              ( if before == null 
+                then before'
+                else {_, ...}: _.do
+                  before
+                  before');
             setThunkCache = thunkCache: mk thunkCache before;
 
             # Run the thunk with the given monadic state and extra scope.
@@ -281,6 +287,7 @@ rec {
 
         # Argument is just used as ID carrier.
         # TODO: ThunkCache could just hold nextId and values.
+        # Uses the thunk from outside to respect addBefore etc
         forceThunk = thunk:
           let thunkId = thunk.thunkId;
               thunkCache = this;
@@ -1219,7 +1226,7 @@ rec {
     __isThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
     runThunk = collective-lib.tests.expect.anyLambda;
-    setBefore = collective-lib.tests.expect.anyLambda;
+    addBefore = collective-lib.tests.expect.anyLambda;
     setThunkCache = collective-lib.tests.expect.anyLambda;
   };
 
