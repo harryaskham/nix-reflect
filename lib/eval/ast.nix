@@ -375,7 +375,7 @@ rec {
   convertInheritToBindings = node: {_, ...}:
     _.do
       (whileV 5 {_ = "converting 'inherit' node to bindings";})
-      (traverse
+      traverse
         (identifierOrString: {_}: _.do
           (guard (isString identifierOrString || identifierOrString.nodeType == "identifier") (TypeError ''
             Expected string or identifier in inherit RHS, got ${lib.typeOf identifierOrString}
@@ -392,7 +392,7 @@ rec {
               # recursively if needed.
               else Thunk (N.binaryOp node.from "." (N.identifier name));}
             ({value, _, ...}: _.pure { inherit name value; })))
-        node.attrs);
+        node.attrs;
 
   # Evaluate an inherit expression, possibly with a source
   # Returns an attrset of thunks.
