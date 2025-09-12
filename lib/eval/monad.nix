@@ -189,39 +189,62 @@ rec {
 
   isThunk = x: x ? __isThunk;
 
-  mkThunk = thunkId: node: {_, ...}:
+  mkThunk = node: {_, ...}:
     _.do
+      (whileV 5 {_ = "constructing Thunk from:\n${node}";})
       (guard (isAST node) (RuntimeError ''
         mkThunk: expected an AST node but got ${_p_ node}
       ''))
       {scope = getScope;}
       ({scope, _}: _.pure (
         let 
-          mk = thunkCache: before: lib.fix (self: {
+          mk = {thunkId, before} @ args: lib.fix (self: {
             __isThunk = true;
             inherit thunkId;
             inherit (node) nodeType;
-            __toString = self: "<CODE#${thunkId}|${self.nodeType}>";
+            __toString = self: "<CODE#${thunkId}|${self.nodeType}|before=${_p_ (before != null)}>";
 
-            addBefore = before':
-              mk thunkCache 
-              ( if before == null 
-                then before'
-                else {_, ...}: _.do
-                  before
-                  before');
-            setThunkCache = thunkCache: mk thunkCache before;
+            # Adding before operations must write a new thunk to the cache,
+            # otherwise lambda bodies would only ever evaluate to their first-evaluation value.
+            forkWithBefore = self.__addBefore "forkWithBefore";
+            unsafeAddBefore = self.__addBefore "unsafeAddBefore";
+
+            # Used by the cache to set the thunkId to the next ID.
+            # No code using thunks should ever make one without the cache as a factory,
+            # so that the ID is always present in in-use thunks.
+            setThunkId = thunkId: mk (args // { inherit thunkId; });
+
+            # Should only be called by 
+            __setBefore = before: mk (args // { inherit before; });
+
+            # Add to the before operation. If mode == newThunk, creates a new cached thunk, otherwise
+            # unsafely overwrites the thunk (only used for fine control over e.g. rec attrset creation)
+            __addBefore = mode: newBefore: {_, ...}:
+              let
+                before' =
+                  if before == null then newBefore
+                  else {_, ...}: _.do before newBefore;
+              in _.do
+                {thunkCache = getThunkCache;}
+                ({thunkCache, _}: _.bind (
+                  let mapFn = {
+                    forkWithBefore = thunkCache.mapThunkId;
+                    unsafeAddBefore = thunkCache.unsafeUpdateThunkId;
+                  }.${mode};
+                  in mapFn (thunk: thunk.__setBefore before') self.thunkId));
 
             # Run the thunk with the given monadic state and extra scope.
             runThunk = {_, ...}:
               _.saveScope (_.do
                 (whileV 3 {_ = _b_ ''computing thunk ${self}'';})
                 (setScope scope)
-                (when (thunkCache != null) (setThunkCache thunkCache))
-                (when (before != null) (before))
+                (when (before != null) ({_, ...}:
+                  _.do
+                    (whileV 3 {_ = "running 'before' action on ${thunk}";})
+                    (before)))
                 (eval.ast.forceEvalNodeM node));
           });
-        in mk null null));
+        in mk { thunkId = null; before = null; }));
 
   maybeThunk = node: if isThunk node then pure node else Thunk node;
 
@@ -229,7 +252,7 @@ rec {
     # Do not allow identifier node-thunks, which can then refer to themselves in an infinite loop.
     #if node.nodeType == "identifier" then nix-reflect.eval.ast.evalIdentifier node
     #else {_}: _.do
-    {_}: _.do
+    {_, ...}: _.do
       (while {_ = "constructing '${node.nodeType}' Thunk";})
       {thunkCache = getThunkCache;}
       ({thunkCache, _}: _.bind (thunkCache.cacheNode node));
@@ -269,25 +292,66 @@ rec {
         '';
 
         # Cache and return the thunk that evaluates the node.
-        # TODO: Need a thunk ID ordering that is not based on evaluation order
-        # so that caches can be passed backwards in time.
-        cacheNode = node: {_}:
+        cacheNode = node: {_, ...}:
+          _.do
+            {thunk = mkThunk node;}
+            ({thunk, _}: _.bind (this.writeThunk thunk));
+
+        # Write the next thunk to the cache, setting its ID.
+        writeThunk = thunk_: {_, ...}:
           let thunkId = toString this.nextId;
+              thunk = thunk_.setThunkId thunkId;
           in _.do
-            {thunk = mkThunk thunkId node;}
-            ({thunk, _}: _.do
-              (whileV 4 {_ = "writing ${thunk} into cache:\n${this}";})
-              (setThunkCache (ThunkCache {
-                inherit (this) values hits misses;
-                thunks = this.thunks // { ${thunkId} = thunk; };
-                nextId = this.nextId + 1;
-              }))
-              (whileV 3 {_ = "returning ${thunk} from cacheNode";})
-              (pure thunk));
+            (whileV 4 {_ = "writing ${thunk} into cache:\n${this}";})
+            (setThunkCache (ThunkCache {
+              inherit (this) values hits misses;
+              thunks = this.thunks // { ${thunkId} = thunk; };
+              nextId = this.nextId + 1;
+            }))
+            (whileV 3 {_ = "returning ${thunk} from writeThunk";})
+            (pure thunk);
+
+        # Write the thunk to the cache, assuming it already has an ID.
+        unsafeWriteUpdatedThunk = thunk: {_, ...}:
+          let thunkId = thunk.thunkId;
+          in _.do
+            (whileV 4 {_ = "unsafely writing ${thunk} into cache:\n${this}";})
+            (guard (thunkId != null) (InvalidThunkError ''
+              ThunkCache.unsafeWriteThunk: thunk ${thunk} has no thunkId:
+                ${thunkCache}
+            ''))
+            (guard (this.thunks ? ${thunkId}) (MissingThunkError ''
+              ThunkCache.unsafeWriteThunk: thunk ${thunk} cannot be unsafely written with the cache's next ID (${toString this.nextId})
+            ''))
+            (setThunkCache (ThunkCache {
+              inherit (this) hits misses nextId;
+              thunks = this.thunks // { ${thunkId} = thunk; };
+              # Also invalidate the cache if this was already forced.
+              values = removeAttrs this.values [thunkId];
+            }))
+            (whileV 3 {_ = "returning ${thunk} from unsafeWriteThunk";})
+            (pure thunk);
+
+        # Apply a function Thunk -> Thunk to a thunk and store a new thunk in the cache.
+        mapThunkId = f: thunkId: {_, ...}:
+          _.do
+            (guard (this.thunks ? ${thunkId}) (MissingThunkError ''
+              ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
+                ${thunkCache}
+            ''))
+            (this.writeThunk (f this.thunks.${thunkId}));
+
+        unsafeUpdateThunkId = f: thunkId: {_, ...}:
+          _.do
+            (guard (this.thunks ? ${thunkId}) (MissingThunkError ''
+              ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
+                ${thunkCache}
+            ''))
+            (this.unsafeWriteUpdatedThunk (f this.thunks.${thunkId}));
 
         # Argument is just used as ID carrier.
         # TODO: ThunkCache could just hold nextId and values.
-        # Uses the thunk from outside to respect addBefore etc
+        # Uses the thunk from outside to respect forkBefore etc
         forceThunk = thunk:
           let thunkId = thunk.thunkId;
               thunkCache = this;
@@ -319,10 +383,12 @@ rec {
                     ${thunkCache}
                   ''; 
                 })
-                # Run the thunk with the cache and get both value and updated cache
-                {result = (thunk.setThunkCache thunkCache).runThunk;}
+                # Run the thunk and get both value and updated cache
+                (whileV 5 {_ = "Calling runThunk to handle cache miss for ${thunk}";})
+                {result = thunk.runThunk;}
                 ({result, _}: _.do
-                  # Get the updated cache from the state after evaluation
+                  # Get the updated cache from the state after evaluation since the thunk
+                  # may have itself created/forced other thunks.
                   {updatedCache = getThunkCache;}
                   ({updatedCache, _}: _.do
                     (setThunkCache (ThunkCache {
@@ -383,7 +449,7 @@ rec {
     scope = mkInitScope scope;
     thunkCache = ThunkCache {};
     stack = Stack {
-      maxDepth = 100;
+      maxDepth = 10000;
       startTimestamp = builtins.currentTime;
       stackFrames = [];
       completedFrames = [];
@@ -514,24 +580,25 @@ rec {
 
   getStack = {_, ...}:
     _.do
-      (whileV 5 {_ = "getting stack";})
+      (whileV_ 5 "getting stack")
       {state = get;}
       ({_, state}: _.pure state.stack);
 
   pushStack = node: {_, ...}:
     _.do
-      (whileV 5 {_ = "pushing stack frame:\n${node}";})
       {state = get;}
-      ({state, _}: _.set (state.setStack (state.stack.push node)));
+      ({state, _}: _.do
+        (whileV_ 5 "pushing stack frame #${toString (state.stack.depth + 1)}:\n${node}")
+        (set (state.setStack (state.stack.push node))));
 
   popStack = {_, ...}:
     _.do
-      (whileV 5 {_ = "popping stack frame";})
+      (whileV_ 5 "popping stack frame")
       {state = get;}
       ({state, _}: 
         let popped = state.stack.pop {};
         in _.do
-          (whileV 5 {_ = "popped stack frame:\n${popped.head}";})
+          (whileV_ 5 "popped stack frame #${toString popped.head.depth}:\n${popped.head}")
           (set (state.setStack popped.tail)));
 
   Unit = {
@@ -838,6 +905,7 @@ rec {
   guard = cond: e: {_, ...}: _.guard cond e;
   while = msg: {_, ...}: _.while msg;
   whileV = v: msg: {_, ...}: _.whileV v msg;
+  whileV_ = v: msg: {_, ...}: _.whileV_ v msg;
   when = cond: m: {_, ...}: _.when cond m;
   unless = cond: m: {_, ...}: _.unless cond m;
 
@@ -962,6 +1030,18 @@ rec {
 
               when = this: cond: m: if cond then this.bind m else this.pure unit;
               unless = this: cond: m: if !cond then this.bind m else this.pure unit;
+
+              whileV_ = this: v: s:
+                # Add the stack logging to the monadic value itself
+                log.while s (
+                  # Add runtime tracing to the resolution of the bind only
+                  this.bind (_:
+                    (log.v v).show
+                      # End ansi to avoid printf buffering
+                      (ansi.end + "while ${s}")
+                      this)
+                );
+
               # Supports extra source printing info via while {_ = "...";}, or just while "..."
               whileV = this: v: s_:
                 with ansi;
@@ -972,20 +1052,16 @@ rec {
                     Right = a: style [fg.green] (getT a);
                   };
                   s = 
-                    # End ansi to avoid printf buffering
-                    ansi.end
-                    + (if isAttrs s_ then _b_ (''
+                    if isAttrs s_
+                    then _b_ (''
                       ${style [fg.black italic] "@${let p = (debuglib.pos.file s_)._; in "${p.file}:${toString p.line}"}"} ${div} ${extra}
                           ${_h_ ((style [fg.grey] "↳ │ ") + (_ls_ (mapTailLines (line: "  ${style [fg.grey] "│"} ${line}") (s_._))))}
                     '')
-                    else s_);
+                    else s_;
+                in this.whileV_ v s;
 
-                # Add the stack logging to the monadic value itself
-                in log.while s (
-                  # Add runtime tracing to the resolution of the bind only
-                  this.bind (_: (log.v v).show "while ${s}" this)
-                );
               while = this: s: this.whileV 3 s;
+
               guard = this: cond: e: 
                 if cond 
                 then this.bind ({_}: _.pure unit) 
@@ -1109,7 +1185,7 @@ rec {
 
   setThunkCache = thunkCache: {_, ...}:
     _.do
-      (while {_ = "setting thunk cache:\n${thunkCache}";})
+      (whileV 4 {_ = "setting thunk cache:\n${thunkCache}";})
       {state = get;}
       ({_, state}: _.set (state.setThunkCache thunkCache));
 
@@ -1139,46 +1215,46 @@ rec {
 
   setPublicScope = scope: {_, ...}:
     _.do
-      (whileV 4 {_ = "setting public scope";})
+      (whileV 5 {_ = "setting public scope";})
       (guardScopeUpdate scope)
       {state = get;}
       ({state, _}: _.set (state.setScope (scope // {inherit (state.scope) __internal__;})));
   
   modifyScope = f: {_, ...}:
     _.do
-      (whileV 4 {_ = "modifying scope";})
+      (whileV 5 {_ = "modifying scope";})
       (modify (s: s.fmap f));
 
   modifyPublicScope = f: {_, ...}:
     _.do
-      (whileV 4 {_ = "modifying public scope";})
+      (whileV 5 {_ = "modifying public scope";})
       (modifyScope (scope: f scope // {inherit (scope) __internal__;}));
 
   getScope = {_, ...}:
     _.do
-      (whileV 4 {_ = "getting scope";})
+      (whileV 5 {_ = "getting scope";})
       {state = get;}
       ({_, state}: _.pure state.scope);
 
   getPublicScope = {_, ...}:
     _.do
-      (whileV 4 {_ = "getting public scope";})
+      (whileV 5 {_ = "getting public scope";})
       {state = get;}
       ({_, state}: _.pure (state.publicScope {}));
 
   appendScope = newScope: {_, ...}:
     _.do
-      (while {_ = "appending scope: ${_l_ (attrNames newScope)}";})
+      (whileV 4 {_ = "appending scope: ${_l_ (attrNames newScope)}";})
       (guardScopeUpdate newScope)
       (modifyScope (scope: scope // newScope));
 
   getWithScope = {_}: _.do
-    (whileV 4 {_ = "getting 'with' scope";})
+    (whileV 5 {_ = "getting 'with' scope";})
     {scope = getScope;}
     ({scope, _}: _.pure scope.__internal__.withScope);
 
   setWithScope = withScope: {_}: _.do
-    (while {_ = "setting 'with' scope";})
+    (whileV 5 {_ = "setting 'with' scope";})
     {scope = getScope;}
     ({scope, _}: _.setScope (scope // {
       __internal__ = scope.__internal__ // { 
@@ -1187,7 +1263,7 @@ rec {
     }));
 
   appendWithScope = withScope: {_}: _.do
-    (while {_ = "appending 'with' scope";})
+    (whileV 4 {_ = "appending 'with' scope: ${_l_ (attrNames withScope)}";})
     {scope = getScope;}
     ({scope, _}: _.setScope (scope // {
       __internal__ = scope.__internal__ // { 
@@ -1235,9 +1311,12 @@ rec {
     thunkId = toString thunkId;
     __isThunk = true;
     __toString = collective-lib.tests.expect.anyLambda;
+    __setBefore = collective-lib.tests.expect.anyLambda;
+    __addBefore = collective-lib.tests.expect.anyLambda;
+    forkWithBefore = collective-lib.tests.expect.anyLambda; 
+    unsafeAddBefore = collective-lib.tests.expect.anyLambda;
+    setThunkId = collective-lib.tests.expect.anyLambda;
     runThunk = collective-lib.tests.expect.anyLambda;
-    addBefore = collective-lib.tests.expect.anyLambda;
-    setThunkCache = collective-lib.tests.expect.anyLambda;
   };
 
   expectEvalError = with tests; expectEvalErrorWith expect.noLambdasEq;

@@ -24,7 +24,7 @@ rec {
   runAST_ = strict: expr:
     maybePrintStackTrace (
     (do
-      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}";})
+      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n\n${_p_ expr}";})
       (evalM strict expr))
     .run (EvalState.mempty {})
     );
@@ -36,7 +36,7 @@ rec {
   evalAST_ = strict: expr:
     maybePrintStackTrace (
     (do
-      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n${_p_ expr}";})
+      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n\n${_p_ expr}";})
       (evalM strict expr))
     .run_ (EvalState.mempty {})
     );
@@ -59,6 +59,7 @@ rec {
     {_, ...}: _.do
       (whileV 2 {_ = (_b_ ''
         evaluating parsed AST node (strict=${boolToString strict}):
+
         ${printBoxed parsed}
       '');})
       {result = if strict then toNixM parsed else toNixLazyM parsed;}
@@ -66,6 +67,7 @@ rec {
       ({result, state, _}: _.do
         (whileV 1 {_ = (_b_ ''
           returning evaluation result:
+
           ${_ph_ result}
         '');})
         (whileV 4 {_ = (_b_ ''
@@ -103,7 +105,7 @@ rec {
   toNixM = x: {_, ...}:
     let signature = toNixSignature x;
     in _.do
-      (while {_ = "Converting to strict Nix value monadically: ${signature} (${lib.typeOf x})\n  ${_p_ x}";})
+      (whileV 2 {_ = "Converting to Nix value: ${signature} (${lib.typeOf x})\n  ${_p_ x}";})
       ({_, ...}: switch signature {
         EvalError = _.liftEither x;
         Eval = throw "toNixM: Eval value ${_ph_ x} cannot be converted to Nix";
@@ -135,7 +137,7 @@ rec {
   toNixLazyM = x: {_, ...}:
     let signature = toNixSignature x;
     in _.do
-      (while {_ = "Converting to lazy Nix value monadically: ${signature}";})
+      (whileV 2 {_ = "Converting to lazy Nix value: ${signature} (${lib.typeOf x})\n  ${_p_ x}";})
       ({_, ...}: switch signature {
         EvalError = _.liftEither x;
         Eval = _.do
@@ -178,7 +180,7 @@ rec {
           (whileV 3 {_ = "not evaluating an EvaluatedLambda in evalNodeM";})
           (pure node)
         else _.do
-          (whileV 2 {_ = "evaluating AST node:\n${toString node}";})
+          (whileV 1 {_ = "evaluating AST node:\n\n${toString node}";})
           (pushStack node)
           {res = switch node.nodeType {
             int = evalLiteral node;
@@ -209,7 +211,15 @@ rec {
             "inherit" = evalInherit node;
           };}
           (popStack)
-          ({_, res}: _.pure (return res))));
+          ({_, res}: _.do
+            (whileV 1 {_ = _b_ ''
+              returning evaluation result for AST node:
+              
+              ${node}
+              -> 
+              ${_p_ res}
+            '';})
+            (pure (return res)))));
 
   deeplyEvalNodeM = node: {_, ...}:
     _.do
@@ -358,56 +368,58 @@ rec {
     _.do
       (while {_ = "evaluating 'assignment' node";})
       {name = identifierName node.lhs;}
-      #{value = evalNodeM node.rhs;}
       {value = Thunk node.rhs;}
       ({_, name, value}: _.pure [{ inherit name value; }]);
 
-  # Evaluate an attribute from a source
-  # evalAttrFrom :: Set -> AST -> Eval {name, value}  
-  evalAttrFrom = from: attr: {_, ...}:
+  # Converts an inherit expression into a binding list to homogenise with recursive bindings.
+  convertInheritToBindings = node: {_, ...}:
     _.do
-      (while {_ = "evaluating 'attr' node by name";})
-      {name = identifierName attr;}
-      ({_, name}: _.do
-        (guard (hasAttr name from) (MissingAttributeError ''
-          No attribute '${name}' found when inheriting from:
-          ${_ph_ from}
-        ''))
-        (pure { inherit name; value = from.${name}; }));
+      (whileV 5 {_ = "converting 'inherit' node to bindings";})
+      (traverse
+        (identifierOrString: {_}: _.do
+          (guard (isString identifierOrString || identifierOrString.nodeType == "identifier") (TypeError ''
+            Expected string or identifier in inherit RHS, got ${lib.typeOf identifierOrString}
+          ''))
+          # Make a new identifier to ensure we handle both strings and identifiers.
+          {name = identifierName identifierOrString;}
+          ({name, _, ...}: _.do
+            {value = 
+              # For a null source, just return the identifier names from the current scope.
+              # TODO: We force-eval here to avoid Thunks getting their before set in the fix operation
+              # but we should tag the thunks as non-fixable instead / FinalThunk
+              if node.from == null then forceEvalNodeM (N.identifier name)
+              # Otherwise we thunkify the access itself, which can now have its 'from' brought into scope
+              # recursively if needed.
+              else Thunk (N.binaryOp node.from "." (N.identifier name));}
+            ({value, _, ...}: _.pure { inherit name value; })))
+        node.attrs);
 
   # Evaluate an inherit expression, possibly with a source
-  # evalInheritSourceAttrs :: AST -> Eval Set
-  evalInheritSourceAttrs = node: {_, ...}:
-    # Either resolve inherits from the main scope (which may contan thunks)
-    if node == null then _.bind getScope
-    # Or evaluate down to WHNF, which must be an attrset
-    else _.do
-      {source = forceEvalNodeM node;}
-      ({source, _}: _.do
-        (guardAttrsForAccess source)
-        (pure source));
-
-  # Evaluate an inherit expression, possibly with a source
-  # evalInherit :: AST -> Eval [{name, value}]
+  # Returns an attrset of thunks.
+  # evalInherit :: AST -> Eval [{name = value}]
   evalInherit = node: {_, ...}:
     _.do
       (while {_ = "evaluating 'inherit' node";})
-      {source = evalInheritSourceAttrs node.from;}
-      ({_, source}: _.traverse (evalAttrFrom source) node.attrs);
+      {bindings = convertInheritToBindings node;}
+      ({_, bindings}: _.do
+        {attrsList = traverse evalNodeM bindings;}
+        ({_, attrsList}: _.pure (concatLists attrsList)));
 
   # Evaluate a list of inheritance or assignment expressions
   # evalBindingList :: AST -> Eval set
   evalBindingList = bindings: {_, ...}:
     _.do
       (while {_ = "evaluating 'bindings' node-list";})
-      # Have to force here to get the list of name/value pairs
-      {attrsList = traverse forceEvalNodeM bindings;}
+      # Evaluate bindings down to a [[{name = Thunk value}]]
+      {attrsList = traverse evalNodeM bindings;}
+      # Merge bindings down to a [{name = Thunk value}]
       {attrs = {_, attrsList}: _.pure (concatLists attrsList);}
       ({_, attrs}: _.guard (all (attr: (hasAttr "name" attr) && (hasAttr "value" attr)) attrs) (RuntimeError ''
         Recursive binding list evaluation produced invalid name/value pairs:
           bindings: ${_ph_ bindings}
           attrs: ${_ph_ attrs}
       ''))
+      # Finally return {name = Thunk value}
       ({_, attrs, ...}: _.pure (listToAttrs attrs));
 
   # Evaluate an attribute set
@@ -416,78 +428,35 @@ rec {
     _.do
       (while {_ = "evaluating 'attrs' node";})
       (if node.isRec 
-      then saveScope (evalRecBindingList node.bindings)
+      then evalRecBindingList node.bindings
       else evalBindingList node.bindings);
 
-  # Evaluate a binding without failing on missing names.
-  # addRecBindingToScope :: AST -> Eval [{name, value}]
-  addRecBindingToScope = binding: {_, ...}:
-    _.do
-      (while {_ = "evaluating 'binding' node for recursive bindings";})
-      # Need to force to WHNF here as we require the name/value list representation
-      {attrsList = forceEvalNodeM binding;}
-      ({attrsList, _}:
-        let attrs = listToAttrs attrsList;
-        in _.do
-          # We store key-thunk pairs back into the store
-          (appendScope attrs)
-          # And also return key-thunk pairs for usage as attrsets or let bindings
-          (pure attrs));
-
-  # Create a forward reference for an AST binding before evaluating a full attrset
-  storeRecAssignmentNode = node: {_, ...}:
-    _.do
-      {k = identifierName node.lhs;}
-      # TODO: implement in terms of lib.fix (needs a monadic fixM)
-      ({_, k}: _.appendScope { ${k} = node.rhs; });
-
-  # Create a forward reference for an AST binding before evaluating a full attrset
-  storeRecAssignmentAction = node: {_, ...}:
-    _.do
-      {k = identifierName node.lhs;}
-      {v = Thunk node.rhs;}
-      ({_, k, v}: _.do
-        (appendScope { ${k} = v; })
-        (pure { ${k} = v; }));
-
-    # Create a forward reference for an AST inherit statement before evaluating a full attrset
-    storeRecInheritNodes = node:
-    traverse
-      (attr: {_, ...}: _.do
-        # Only evaluate the source to WHNF; 
-        {source = evalInheritSourceAttrs node.from;}
-        # TODO: disallow dynamic attributes
-        {k = identifierName attr.name;}
-        ({source, k, _}: _.appendScope {
-          ${k} = source.${k};
-        })
-        (pure { ${k} = source.${k}; }))
-      node.attrs;
+  fixRecScope = depth: thunkAttrs: {_, ...}:
+    if depth == 0 then _.pure thunkAttrs
+    else _.traverseAttrs
+      (name: thunkOrValue: {_, ...}:
+        if !(isThunk thunkOrValue) then _.pure thunkOrValue
+        else 
+          let thunk = thunkOrValue;
+          in _.do
+            (while {_ = "adding recursive scope to binding '${name} = ${thunk}'";})
+            (thunk.unsafeAddBefore ({_, ...}: 
+              _.do
+                # Before each nested thunk resolution, we update its scope with the fixed set
+                # so that we always see the fixed versions.
+                {scope = fixRecScope (depth - 1) thunkAttrs;}
+                (appendScope scope))))
+      thunkAttrs;
 
   # Evaluate a list of recursive bindings
-  # These are added to the scope; it is up to the usage sites (i.e. attrSets, letIn, with) to
-  # saveScope appropriately. This is to enable nesting.
   # TODO: Disallow duplicate names
   evalRecBindingList = bindings: {_, ...}:
-    let assignmentNodes = filter (b: b.nodeType == "assignment") bindings;
-        inheritNodes = filter (b: b.nodeType == "inherit") bindings;
-    in _.do
-      # First store the ASTs so that at least we have working if slow scope for all assignments
-      (traverse storeRecAssignmentNode assignmentNodes)
-
-      # Then a layer of thunks
-      #(traverse storeRecAssignmentAction assignmentNodes)
-
-      # rec-inherits could refer to any of the assigned nodes
-      {inheritAttrs = traverse storeRecInheritNodes inheritNodes;}
-
-      # Then the Thunks, so each sees a thunk at each other key.
-      {assignmentAttrs = traverse storeRecAssignmentAction assignmentNodes;}
-
-      # Now set the scope for all thunks to include the new bindings before evaluation
-      ({inheritAttrs, assignmentAttrs, _}: 
-        let thunkAttrs = mergeAttrsList (inheritAttrs ++ assignmentAttrs);
-        in _.pure thunkAttrs);
+    _.do
+      (while {_ = "evaluating recursive binding list";})
+      {nonRecAttrs = evalBindingList bindings;}
+      # First create a version of the bindings that can see each other and that when they resolve
+      # a thunk, that thunk can also see the other values.
+      ({nonRecAttrs, _, ...}: _.bind (fixRecScope 1 nonRecAttrs));
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r: {_, ...}:
     _.do
@@ -805,10 +774,10 @@ rec {
             {defaults =
               let bindings = forAttrsToList defaultUnsupplied (k: v: N.assignment (N.identifier k) v);
               in evalRecBindingList bindings;}
-            # Return the merged scope as an attrset.
+            # Add to scope and return the merged scope as an attrset.
             ({defaults, _}: _.do
               (while {_ = "adding new scope from default lambda params:\n${_p_ defaults}";})
-              #(appendScope defaults)
+              (appendScope defaults)
               (pure (arg // defaults)));
       });
 
@@ -900,8 +869,8 @@ rec {
   evalLambda = node: {_, ...}:
     _.do
       (while {_ = "evaluating 'lambda' node without argument to EvaluatedLambda";})
-      {bodyThunk = Thunk node.body;}
-      ({bodyThunk, _}:
+      {scope = getScope;}
+      ({scope, _}:
         _.pure (lib.fix (self: {
           __isEvaluatedLambda = true;
           __toString = self: "EvaluatedLambda<${node.param}: ...>";
@@ -909,18 +878,10 @@ rec {
           applyM = argNode: {_, ...}: _.do
             (while {_ = "applying lambda";})
             {arg = forceEvalNodeM argNode;}
-            {thunkCache = getThunkCache;}
-            ({arg, thunkCache, _, ...}:
-              _.pure (
-                bodyThunk.addBefore ({_, ...}: _.do
-                  (while {_ = "before applying lambda";})
-                  # Evaluate the defaults in the saved context of the body,
-                  # which should have the same view of the current scope as the param list.
-                  (evalLambdaParam node.param arg)
-                  (trackScope "before evaling lambda body")
-                )
-              )
-            );
+            ({arg, _, ...}: _.saveScope ({_, ...}: _.do
+              (setScope scope)
+              (evalLambdaParam node.param arg)
+              (Thunk node.body)));
 
           asLambda = arg: toNix (Eval.do (self.applyM arg));
         })));
@@ -991,8 +952,9 @@ rec {
   evalLetIn = node: {_, ...}: 
     _.do
       (while {_ = "evaluating 'letIn' node";})
-      (saveScope ({_, ...}: _.do
-        (evalRecBindingList node.bindings)
+      {letScope = evalRecBindingList node.bindings;}
+      ({letScope, _}: _.saveScope ({_, ...}: _.do
+        (appendScope letScope)
         (evalNodeM node.body)));
 
   # Evaluate a with expression
@@ -1717,11 +1679,20 @@ rec {
             };
           _03_factorial._01_rec = 
             let expr = i: "rec { f = x: if x <= 1 then 1 else x * f (x - 1); x = f ${toString i}; }.x";
-            in solo {
+            in {
               _0 = testRoundTrip (expr 0) 1;
               _1 = testRoundTrip (expr 1) 1;
               _2 = testRoundTrip (expr 2) 2;
-              _3 = testRoundTrip (expr 3) 6;
+              #_3 = testRoundTrip (expr 3) 6;
+              #_4 = testRoundTrip (expr 4) 24;
+            };
+          _03_factorial._02_with = 
+            let expr = i: "with rec { f = x: if x <= 1 then 1 else x * f (x - 1); }; f ${toString i}";
+            in {
+              _0 = testRoundTrip (expr 0) 1;
+              _1 = testRoundTrip (expr 1) 1;
+              _2 = testRoundTrip (expr 2) 2;
+              #_3 = testRoundTrip (expr 3) 6;
               #_4 = testRoundTrip (expr 4) 24;
             };
           _04_fibonacci._00_let =

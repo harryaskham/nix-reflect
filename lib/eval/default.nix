@@ -15,13 +15,28 @@ let
     fn = import ./fn.nix args;
     ast = import ./ast.nix args;
   };
+
+  unsafely = f: expr: (f expr).case {
+    Left = e: throw "Eval error: ${e}";
+    Right = v: v;
+  };
 in
 # Expose the modules as eval.monad, eval.store, eval.ast
 # Plus the centralising eval function.
-collective-lib.tests.withMergedSuites modules // {
+collective-lib.tests.withMergedSuites modules // (lib.fix (self: {
   /* Default to dispatching based on the type of the argument,
   eval :: (string | AST) -> Either EvalError a */
-  __functor = self: self.eval;
+  __functor = self: self.lazy;
+  lazy = unsafely self.either.lazy;
+  strict = unsafely self.either.strict;
+
+  /* Evaluate safely to a result or an error.
+  either :: (string | AST) -> Either EvalError a */
+  either = {
+    __functor = self: self.lazy;
+    lazy = modules.ast.evalAST;
+    strict = modules.ast.evalAST';
+  };
 
   # Expose under 'eval.eval' and 'eval'
   eval = {
@@ -29,20 +44,11 @@ collective-lib.tests.withMergedSuites modules // {
 
     /* Eval a string or AST.
     eval :: (string | AST) -> Either EvalError a */
-    ast = modules.ast.evalAST;
+    ast = self.lazy;
 
     /* Eval a string by persisting to the store.
     store :: string -> a */
     store = modules.store.evalStore;
   };
 
-  lazy = modules.ast.evalAST;
-  strict = modules.ast.evalAST';
-
-  # Throwing version of eval, discarding the Either type.
-  unsafe = expr: (modules.ast.evalAST expr).case {
-    Left = e: throw "Eval error: ${e}";
-    Right = v: v;
-  };
-
-}
+}))
