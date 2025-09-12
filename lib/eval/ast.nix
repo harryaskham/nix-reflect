@@ -45,7 +45,7 @@ rec {
     Left = e: 
       log.trace.show ("\n" + (with ansi; box {
         header = style [fg.red bold] "Evaluation Error";
-        body = e.__stackTrace;
+        body = e.__printStackTrace {};
         margin = zeros;
       })) r;
     Right = _: r;
@@ -371,39 +371,36 @@ rec {
       {value = Thunk node.rhs;}
       ({_, name, value}: _.pure [{ inherit name value; }]);
 
-  # Converts an inherit expression into a binding list to homogenise with recursive bindings.
-  convertInheritToBindings = node: {_, ...}:
-    _.do
-      (whileV 5 {_ = "converting 'inherit' node to bindings";})
-      traverse
-        (identifierOrString: {_}: _.do
-          (guard (isString identifierOrString || identifierOrString.nodeType == "identifier") (TypeError ''
-            Expected string or identifier in inherit RHS, got ${lib.typeOf identifierOrString}
-          ''))
-          # Make a new identifier to ensure we handle both strings and identifiers.
-          {name = identifierName identifierOrString;}
-          ({name, _, ...}: _.do
-            {value = 
-              # For a null source, just return the identifier names from the current scope.
-              # TODO: We force-eval here to avoid Thunks getting their before set in the fix operation
-              # but we should tag the thunks as non-fixable instead / FinalThunk
-              if node.from == null then forceEvalNodeM (N.identifier name)
-              # Otherwise we thunkify the access itself, which can now have its 'from' brought into scope
-              # recursively if needed.
-              else Thunk (N.binaryOp node.from "." (N.identifier name));}
-            ({value, _, ...}: _.pure { inherit name value; })))
-        node.attrs;
-
   # Evaluate an inherit expression, possibly with a source
-  # Returns an attrset of thunks.
   # evalInherit :: AST -> Eval [{name = value}]
   evalInherit = node: {_, ...}:
     _.do
-      (while {_ = "evaluating 'inherit' node";})
-      {bindings = convertInheritToBindings node;}
-      ({_, bindings}: _.do
-        {attrsList = traverse evalNodeM bindings;}
-        ({_, attrsList}: _.pure (concatLists attrsList)));
+      (whileV 5 {_ = "evaluating 'inherit' node";})
+      (traverse
+        (identifierOrString: {_, ...}: 
+          let identifier = if isAST identifierOrString then identifierOrString else N.identifier identifierOrString;
+          in _.do
+            (guard (isString identifierOrString || identifierOrString.nodeType == "identifier") (TypeError ''
+              Expected string or identifier in inherit RHS, got ${lib.typeOf identifierOrString}
+            ''))
+            # Make a new identifier to ensure we handle both strings and identifiers.
+            {name = identifierName identifier;}
+            ({name, _, ...}:
+              if node.from == null
+              then _.do
+                {value = evalIdentifier identifier;}
+                ({value, _}: _.pure { inherit name value; })
+              else _.do
+                # TODO: Needs lifting to avoid dupe computations
+                {from = forceEvalNodeM node.from;}
+                ({from, _}: _.do
+                  (guardAttrsForAccess from)
+                  (guard (hasAttr name from) (MissingAttributeError ''
+                    Undefined identifier '${name}' in inherit source:
+                      ${_ph_ from}
+                  ''))
+                  (pure { inherit name; value = from.${name}; }))))
+          node.attrs);
 
   # Evaluate a list of inheritance or assignment expressions
   # evalBindingList :: AST -> Eval set
@@ -411,16 +408,18 @@ rec {
     _.do
       (while {_ = "evaluating 'bindings' node-list";})
       # Evaluate bindings down to a [[{name = Thunk value}]]
-      {attrsList = traverse evalNodeM bindings;}
+      {attrsLists = traverse evalNodeM bindings;}
       # Merge bindings down to a [{name = Thunk value}]
-      {attrs = {_, attrsList}: _.pure (concatLists attrsList);}
-      ({_, attrs}: _.guard (all (attr: (hasAttr "name" attr) && (hasAttr "value" attr)) attrs) (RuntimeError ''
-        Recursive binding list evaluation produced invalid name/value pairs:
-          bindings: ${_ph_ bindings}
-          attrs: ${_ph_ attrs}
-      ''))
-      # Finally return {name = Thunk value}
-      ({_, attrs, ...}: _.pure (listToAttrs attrs));
+      ({attrsLists, _, ...}:
+        let attrsList = concatLists attrsLists;
+        in _.do
+          (guard (all (attr: (hasAttr "name" attr) && (hasAttr "value" attr)) attrsList) (RuntimeError ''
+            Recursive binding list evaluation produced invalid name/value pairs:
+              bindings: ${_ph_ bindings}
+              attrsList: ${_ph_ attrsList}
+          ''))
+          # Finally return {name = Thunk value}
+          (pure (listToAttrs attrsList)));
 
   # Evaluate an attribute set
   # evalAttrs :: AST -> Eval AttrSet
@@ -444,7 +443,7 @@ rec {
               _.do
                 # Before each nested thunk resolution, we update its scope with the fixed set
                 # so that we always see the fixed versions.
-                {scope = fixRecScope (depth - 1) thunkAttrs;}
+                {scope = fixRecScope (depth - 3) thunkAttrs;}
                 (appendScope scope))))
       thunkAttrs;
 
@@ -841,7 +840,7 @@ rec {
   evalAttrSetParam = param: arg: {_, ...}:
     _.do
       (while {_ = "evaluating 'attrSetParam' node";})
-      ({_}: _.do
+      ({_, ...}: _.do
         (while {_ = "merging 'attrSetParam' node with arg";})
         (guardAttrSetParam arg param)
         # Add arg to scope so default Thunks contain it

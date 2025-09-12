@@ -408,8 +408,8 @@ rec {
     mempty = _: initState;
 
     __functor = self:
-      {scope, thunkCache, stack} @ thisArgs:
-      (lib.fix (this: {
+      {scope ? initScope, thunkCache ? ThunkCache {}, stack ? Stack {}}: 
+      lib.fix (this: {
         inherit scope thunkCache stack;
         publicScope = {}: removeAttrs scope ["__internal__"];
 
@@ -429,12 +429,12 @@ rec {
           '';
         } // args);
 
-        setScope = scope: EvalState (thisArgs // { inherit scope; });
-        setThunkCache = thunkCache: EvalState (thisArgs // { inherit thunkCache; });
-        setStack = stack: EvalState (thisArgs // { inherit stack; });
+        setScope = scope: EvalState { inherit (this) thunkCache stack; inherit scope; };
+        setThunkCache = thunkCache: EvalState { inherit (this) scope stack; inherit thunkCache; };
+        setStack = stack: EvalState { inherit (this) scope thunkCache; inherit stack; };
 
         fmap = f: this.setScope (f this.scope);
-      }));
+      });
     };
 
   resetScope = {_}: _.do
@@ -448,12 +448,7 @@ rec {
   mkInitEvalState = scope: EvalState {
     scope = mkInitScope scope;
     thunkCache = ThunkCache {};
-    stack = Stack {
-      maxDepth = 10000;
-      startTimestamp = builtins.currentTime;
-      stackFrames = [];
-      completedFrames = [];
-    };
+    stack = Stack {};
   };
 
   mkInitScope = scope: lib.fix (self: 
@@ -511,7 +506,8 @@ rec {
 
   since = t: builtins.currentTime - t;
 
-  Stack = { maxDepth, startTimestamp, stackFrames, completedFrames } @ args:
+  Stack = 
+    { maxDepth ? 10000, startTimestamp ? builtins.currentTime, stackFrames ? [], completedFrames ? [] }:
     lib.fix (self: seqId {
       inherit maxDepth startTimestamp stackFrames completedFrames;
 
@@ -532,7 +528,8 @@ rec {
 
           ${self}
         '';
-        Stack (args // {
+        Stack {
+          inherit (self) maxDepth startTimestamp completedFrames;
           stackFrames = [
             (StackFrame {
               inherit node;
@@ -541,7 +538,7 @@ rec {
               endTimestamp = null;
             })
           ] ++ self.stackFrames;
-       });
+       };
 
       pop = {}:
         if self.stackFrames == [] 
@@ -551,14 +548,15 @@ rec {
               completedHead = sfs.head.complete {};
           in {
             head = completedHead;
-            tail = Stack (args // {
+            tail = Stack {
+              inherit (self) maxDepth startTimestamp;
               stackFrames = sfs.tail;
               completedFrames = self.completedFrames ++ [completedHead];
-            });
+            };
           };
     });
 
-  StackFrame = {startTimestamp, endTimestamp, node, depth} @ args:
+  StackFrame = {startTimestamp ? builtins.currentTime, endTimestamp ? null, node, depth}:
     lib.fix (self: seqId {
       inherit node depth startTimestamp endTimestamp;
 
@@ -568,14 +566,15 @@ rec {
       '';
       printTrace = {}: _b_ ''
         ${self}
-        ${self.node.__src}
+        ${def "<no source>" (self.node.__src or null)}
       '';
 
       complete = {}:
         if self.endTimestamp != null then throw "StackFrame.complete: endTimestamp already set"
-        else StackFrame (args // {
+        else StackFrame {
+          inherit (self) node depth startTimestamp;
           endTimestamp = builtins.currentTime;
-        });
+        };
     });
 
   getStack = {_, ...}:
@@ -1115,7 +1114,7 @@ rec {
               throws = this:
                 e: 
                 if is Error e
-                then this.setEither (E.Left (e // { __stackTrace = this.s'.stack.printTrace {}; }))
+                then this.setEither (E.Left (e // { __printStackTrace = this.s'.stack.printTrace; }))
                 else this.setEither (E.Left (RuntimeError ''
                   Eval.throws: expected Either value ${Error} but got ${_p_ e} of type ${getT e}
                 ''));
@@ -1345,6 +1344,7 @@ rec {
     expected,
     initialScope ? initScope,
     includeBuiltins ? false,
+    expectedStack ? null,
     expectedScope ? null,
     buildExpectedScope ? mkInitScope,
     expectedThunkCache ? null
@@ -1379,6 +1379,8 @@ rec {
                   else buildExpectedScope expectedScope;
                 thunkCache =
                    def (r.right.s.thunkCache or null) expectedThunkCache;
+                stack =
+                  def (r.right.s.stack or null) expectedStack;
               };
               a = expected;
             };
@@ -1388,7 +1390,7 @@ rec {
     with tests;
     expect.noLambdasEq
       ((a.run (mkInitEvalState s)).left or {__notLeft = true;})
-      e;
+      (e // {__printStackTrace = expect.anyLambda;});
 
   expectRunNixError = s: a: 
     with tests;
