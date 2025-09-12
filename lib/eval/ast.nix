@@ -167,7 +167,7 @@ rec {
     with (log.v 3).call "evalNodeM" (toString node) ___;
     ({_, ...}: _.do
       (guard (is AST node || isThunk node || isEvaluatedLambda node || is EvalError node) (RuntimeError ''
-        evalNodeM: Expected AST node, Thunk, EvaluatedLambda, or EvalError, got ${_ph_ node}
+        evalNodeM: Expected AST node, Thunk, EvaluatedLambda, or EvalError, got ${lib.typeOf node}
       ''))
       ({_, ...}: 
         if is EvalError node then _.do
@@ -438,13 +438,12 @@ rec {
         else 
           let thunk = thunkOrValue;
           in _.do
-            (while {_ = "adding recursive scope to binding '${name} = ${thunk}'";})
+            (while {_ = "adding recursive scope to binding '${name}'";})
             (thunk.unsafeAddBefore ({_, ...}: 
               _.do
                 # Before each nested thunk resolution, we update its scope with the fixed set
                 # so that we always see the fixed versions.
-                #{scope = fixRecScope (depth - 1) thunkAttrs;}
-                {scope = fixRecScope 1 thunkAttrs;}
+                {scope = fixRecScope (depth - 1) thunkAttrs;}
                 ({scope, _, ...}: _.appendScope scope))))
       thunkAttrs;
 
@@ -456,7 +455,7 @@ rec {
       {nonRecAttrs = evalBindingList bindings;}
       # First create a version of the bindings that can see each other and that when they resolve
       # a thunk, that thunk can also see the other values.
-      ({nonRecAttrs, _, ...}: _.bind (fixRecScope 1 nonRecAttrs));
+      ({nonRecAttrs, _, ...}: _.bind (fixRecScope 5 nonRecAttrs));
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r: {_, ...}:
     _.do
@@ -718,8 +717,10 @@ rec {
             ${_ph_ cond}
         ''))
         (if cond
-         then evalNodeM node."then"
-         else evalNodeM node."else"));
+         #then evalNodeM node."then"
+         #else evalNodeM node."else"));
+         then Thunk node."then"
+         else Thunk node."else"));
 
   # Get the name of a parameter from its AST node.
   # param.name is an identifier.
@@ -881,7 +882,7 @@ rec {
             ({arg, _, ...}: _.saveScope ({_, ...}: _.do
               (setScope scope)
               (evalLambdaParam node.param arg)
-              (Thunk node.body)));
+              (evalNodeM node.body)));
 
           asLambda = arg: toNix (Eval.do (self.applyM arg));
         })));
@@ -1669,13 +1670,14 @@ rec {
           _01_mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
           _02_complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
           _03_factorial._00_let =
-            let expr = i: "let f = x: if x == 0 then 1 else x * f (x - 1); in f ${toString i}";
+            let expr = i: "let f = x: if x < 2 then 1 else x * f (x - 1); in f ${toString i}";
+            #let expr = i: "let f = x: if x == 0 then 1 else x * f (x - 1); in f ${toString i}";
             in {
-              _0 = testRoundTrip (expr 0) 1;
-              _1 = testRoundTrip (expr 1) 1;
-              _2 = testRoundTrip (expr 2) 2;
-              #_3 = testRoundTrip (expr 3) 6;
-              #_4 = testRoundTrip (expr 4) 24;
+              _0 = testRoundTripSame (expr 0) 1;
+              _1 = testRoundTripSame (expr 1) 1;
+              _2 = testRoundTripSame (expr 2) 2;
+              _3 = testRoundTripSame (expr 3) 6;
+              #_4 = testRoundTripSame (expr 4) 24;
             };
           _03_factorial._01_rec = 
             let expr = i: "rec { f = x: if x <= 1 then 1 else x * f (x - 1); x = f ${toString i}; }.x";
@@ -1692,7 +1694,7 @@ rec {
               _0 = testRoundTrip (expr 0) 1;
               _1 = testRoundTrip (expr 1) 1;
               _2 = testRoundTrip (expr 2) 2;
-              #_3 = testRoundTrip (expr 3) 6;
+              _3 = testRoundTrip (expr 3) 6;
               #_4 = testRoundTrip (expr 4) 24;
             };
           _04_fibonacci._00_let =

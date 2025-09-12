@@ -182,7 +182,7 @@ rec {
         (whileV 4 {_ = "not forcing a non-thunk of type ${lib.typeOf x}";})
         (pure x)
       else _.do
-        (whileV 4 {_ = "forcing ${x} via thunk cache";})
+        (whileV 4 {_ = "forcing #${x.thunkId} via thunk cache";})
         # Force thunks, persisting the value in the cache upon first force.
         {thunkCache = getThunkCache;}
         ({thunkCache, _}: _.bind (thunkCache.forceThunk x));
@@ -191,7 +191,7 @@ rec {
 
   mkThunk = node: {_, ...}:
     _.do
-      (whileV 5 {_ = "constructing Thunk from:\n${node}";})
+      (whileV 5 {_ = "constructing Thunk from:\n${_p_ node}";})
       (guard (isAST node) (RuntimeError ''
         mkThunk: expected an AST node but got ${_p_ node}
       ''))
@@ -202,7 +202,7 @@ rec {
             __isThunk = true;
             inherit thunkId;
             inherit (node) nodeType;
-            __toString = self: "<CODE#${thunkId}|${self.nodeType}|before=${_p_ (before != null)}>";
+            __toString = self: "<CODE#${thunkId}|${self.nodeType}${optionalString (before != null) "|+"}>";
 
             # Adding before operations must write a new thunk to the cache,
             # otherwise lambda bodies would only ever evaluate to their first-evaluation value.
@@ -236,11 +236,11 @@ rec {
             # Run the thunk with the given monadic state and extra scope.
             runThunk = {_, ...}:
               _.saveScope (_.do
-                (whileV 3 {_ = _b_ ''computing thunk ${self}'';})
+                (whileV 3 {_ = _b_ ''computing thunk #${thunkId}'';})
                 (setScope scope)
                 (when (before != null) ({_, ...}:
                   _.do
-                    (whileV 3 {_ = "running 'before' action on ${thunk}";})
+                    (whileV 3 {_ = "running 'before' action on #${thunkId}";})
                     (before)))
                 (eval.ast.forceEvalNodeM node));
           });
@@ -302,20 +302,20 @@ rec {
           let thunkId = toString this.nextId;
               thunk = thunk_.setThunkId thunkId;
           in _.do
-            (whileV 4 {_ = "writing ${thunk} into cache:\n${this}";})
+            (whileV 4 {_ = "writing #${thunkId} into cache";})
             (setThunkCache (ThunkCache {
               inherit (this) values hits misses;
               thunks = this.thunks // { ${thunkId} = thunk; };
               nextId = this.nextId + 1;
             }))
-            (whileV 3 {_ = "returning ${thunk} from writeThunk";})
+            (whileV 3 {_ = "returning #${thunkId} from writeThunk";})
             (pure thunk);
 
         # Write the thunk to the cache, assuming it already has an ID.
         unsafeWriteUpdatedThunk = thunk: {_, ...}:
           let thunkId = thunk.thunkId;
           in _.do
-            (whileV 4 {_ = "unsafely writing ${thunk} into cache:\n${this}";})
+            (whileV 4 {_ = "unsafely writing #${thunkId} into cache:";})
             (guard (thunkId != null) (InvalidThunkError ''
               ThunkCache.unsafeWriteThunk: thunk ${thunk} has no thunkId:
                 ${thunkCache}
@@ -329,7 +329,7 @@ rec {
               # Also invalidate the cache if this was already forced.
               values = removeAttrs this.values [thunkId];
             }))
-            (whileV 3 {_ = "returning ${thunk} from unsafeWriteThunk";})
+            (whileV 3 {_ = "returning #${thunkId} from unsafeWriteThunk";})
             (pure thunk);
 
         # Apply a function Thunk -> Thunk to a thunk and store a new thunk in the cache.
@@ -356,7 +356,7 @@ rec {
           let thunkId = thunk.thunkId;
               thunkCache = this;
           in {_}: _.do
-            (whileV 3 {_ = "forcing thunk ${thunk}";})
+            (whileV 3 {_ = "forcing thunk #${thunkId}";})
             (guard (thunkCache.thunks ? ${thunkId}) (MissingThunkError ''
               ThunkCache.forceThunkId: thunkId ${thunkId} not found in cache:
                 ${thunkCache}
@@ -369,7 +369,7 @@ rec {
             ''))
             ({_}:
               if thunkCache.values ? ${thunkId} then _.do
-                (while {_ = "ThunkCache hit for ${thunk}:\n${thunkCache}";})
+                (while {_ = "ThunkCache hit for #${thunkId}";})
                 (setThunkCache (ThunkCache {
                   inherit (thunkCache) thunks values nextId misses;
                   hits = thunkCache.hits + 1;
@@ -377,14 +377,9 @@ rec {
                 (pure thunkCache.values.${thunkId} )
 
               else _.do
-                (while { 
-                  _ = ''
-                    ThunkCache miss for ${thunk}
-                    ${thunkCache}
-                  ''; 
-                })
+                (while { _ = "ThunkCache miss for #${thunkId}"; })
                 # Run the thunk and get both value and updated cache
-                (whileV 5 {_ = "Calling runThunk to handle cache miss for ${thunk}";})
+                (whileV 5 {_ = "Calling runThunk to handle cache miss for #${thunkId}";})
                 {result = thunk.runThunk;}
                 ({result, _}: _.do
                   # Get the updated cache from the state after evaluation since the thunk
@@ -1034,12 +1029,18 @@ rec {
                 # Add the stack logging to the monadic value itself
                 log.while s (
                   # Add runtime tracing to the resolution of the bind only
-                  this.bind (_:
-                    (log.v v).show
-                      # End ansi to avoid printf buffering
-                      (ansi.end + "while ${s}")
-                      this)
-                );
+                  this.bind ({_, ...}:
+                    _.do
+                      {scope = getScope;}
+                      ({scope, _, ...}:
+                        let d = scopeDiffSimple scope;
+                            inScope = 
+                              optionalString (d != {}) (with ansi; "in scope: ${style [fg.brightcyan] (_l_ d)}\n");
+                        in _.bind (
+                          (log.v v).show
+                            # End ansi to avoid printf buffering
+                            (ansi.end + "${inScope}while ${s}")
+                            (this)))));
 
               # Supports extra source printing info via while {_ = "...";}, or just while "..."
               whileV = this: v: s_:
@@ -1184,7 +1185,7 @@ rec {
 
   setThunkCache = thunkCache: {_, ...}:
     _.do
-      (whileV 4 {_ = "setting thunk cache:\n${thunkCache}";})
+      (whileV 4 {_ = "setting thunk cache";})
       {state = get;}
       ({_, state}: _.set (state.setThunkCache thunkCache));
 
@@ -1231,7 +1232,7 @@ rec {
 
   getScope = {_, ...}:
     _.do
-      (whileV 5 {_ = "getting scope";})
+      #(whileV_ 5 {_ = "getting scope";})
       {state = get;}
       ({_, state}: _.pure state.scope);
 
