@@ -1037,8 +1037,12 @@ rec {
 
               # Set the value to the given error.
               throws = this:
-                e: assert that (is Error e) ''Eval.throws: expected Either value ${Error} but got ${_p_ e} of type ${getT e}'';
-                this.setEither (E.Left (e // { __stackTrace = this.s'.stack.printTrace {}; }));
+                e: 
+                if is Error e
+                then this.setEither (E.Left (e // { __stackTrace = this.s'.stack.printTrace {}; }))
+                else this.setEither (E.Left (RuntimeError ''
+                  Eval.throws: expected Either value ${Error} but got ${_p_ e} of type ${getT e}
+                ''));
 
               # Catch specific error types and handle them with a recovery function
               # catch :: (EvalError -> Eval A) -> Eval A
@@ -1203,15 +1207,21 @@ rec {
     (removeAttrs initScope ["__internal__" "builtins"])
     (removeAttrs scope ["__internal__" "builtins"]));
 
-  scopeDiffSimple = scope: removeAttrs scope (attrNames initScope);
+  scopeDiffSimple = scope: 
+    mapAttrs 
+      (_: v: if isAST v then printASTName v else v)
+      (removeAttrs scope (["__internal__"] ++ attrNames initScope));
 
   trackScope' = msg: scope: {_, ...}:
     _.whileV 1 {
       _ = _b_ ''
         tracking scope; ${msg}
         ${with script-utils.ansi-utils.ansi; box {
-          header = style [bold] "Scope Diff";
-          body = _p_ (scopeDiff scope);
+          styles = [bg.white fg.black];
+          borderStyles = [fg.blue];
+          header = style_ [bold fg.blue] "Scope";
+          body = _p_ (scopeDiffSimple scope);
+          margin = ones;
         }}
       '';
     };

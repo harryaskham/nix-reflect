@@ -449,7 +449,6 @@ rec {
       ({_, k, v}: _.do
         (appendScope { ${k} = v; })
         (pure { ${k} = v; }));
-      #(trackScope "after storing rec assignment action");
 
     # Create a forward reference for an AST inherit statement before evaluating a full attrset
     storeRecInheritNodes = node:
@@ -479,11 +478,9 @@ rec {
       # Then a layer of thunks
       #(traverse storeRecAssignmentAction assignmentNodes)
 
-      #(trackScope "after storing rec AST node forward references")
       # rec-inherits could refer to any of the assigned nodes
       {inheritAttrs = traverse storeRecInheritNodes inheritNodes;}
 
-      #(trackScope "after storing rec inherit node forward references")
       # Then the Thunks, so each sees a thunk at each other key.
       {assignmentAttrs = traverse storeRecAssignmentAction assignmentNodes;}
 
@@ -915,12 +912,15 @@ rec {
             {thunkCache = getThunkCache;}
             ({arg, thunkCache, _, ...}:
               _.pure (
-                bodyThunk
-                .addBefore ({_, ...}: _.do
+                bodyThunk.addBefore ({_, ...}: _.do
                   (while {_ = "before applying lambda";})
                   # Evaluate the defaults in the saved context of the body,
                   # which should have the same view of the current scope as the param list.
-                  (evalLambdaParam node.param arg))));
+                  (evalLambdaParam node.param arg)
+                  (trackScope "before evaling lambda body")
+                )
+              )
+            );
 
           asLambda = arg: toNix (Eval.do (self.applyM arg));
         })));
@@ -1706,7 +1706,7 @@ rec {
           _00_simple = testRoundTrip "let x = y; y = 1; in x" 1;
           _01_mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
           _02_complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
-          _03_factorial =
+          _03_factorial._00_let =
             let expr = i: "let f = x: if x == 0 then 1 else x * f (x - 1); in f ${toString i}";
             in {
               _0 = testRoundTrip (expr 0) 1;
@@ -1715,7 +1715,16 @@ rec {
               #_3 = testRoundTrip (expr 3) 6;
               #_4 = testRoundTrip (expr 4) 24;
             };
-          _04_fibonacci =
+          _03_factorial._01_rec = 
+            let expr = i: "rec { f = x: if x <= 1 then 1 else x * f (x - 1); x = f ${toString i}; }.x";
+            in solo {
+              _0 = testRoundTrip (expr 0) 1;
+              _1 = testRoundTrip (expr 1) 1;
+              _2 = testRoundTrip (expr 2) 2;
+              _3 = testRoundTrip (expr 3) 6;
+              #_4 = testRoundTrip (expr 4) 24;
+            };
+          _04_fibonacci._00_let =
             let expr = i: "let fib = n: if n <= 1 then n else fib (n - 1) + fib (n - 2); in fib ${toString i}";
             in {
               _0 = testRoundTrip (expr 0) 0;
@@ -1726,7 +1735,7 @@ rec {
           # TODO: Fixing this requires laziness; when fib2 calls into memo, memo is fully eval'd,
           # including fib2. We should instead have 'attrs' evaluate to an object that can be
           # accessed lazily i.e. most evaluations should return thunks.
-          _05_fibonacciRec =
+          _05_fibonacci._01_memo =
             skip (
             let expr = ''
               let k = i: "_" + (builtins.toString i);
