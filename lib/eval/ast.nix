@@ -443,8 +443,9 @@ rec {
               _.do
                 # Before each nested thunk resolution, we update its scope with the fixed set
                 # so that we always see the fixed versions.
-                {scope = fixRecScope (depth - 3) thunkAttrs;}
-                (appendScope scope))))
+                #{scope = fixRecScope (depth - 1) thunkAttrs;}
+                {scope = fixRecScope 1 thunkAttrs;}
+                ({scope, _, ...}: _.appendScope scope))))
       thunkAttrs;
 
   # Evaluate a list of recursive bindings
