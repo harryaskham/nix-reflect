@@ -198,8 +198,6 @@ rec {
             unaryOp = evalUnaryOp node;
             conditional = evalConditional node;
             lambda = evalLambda node;
-            simpleParam = evalSimpleParam node;
-            attrSetParam = evalAttrSetParam node;
             application = evalApplication node;
             letIn = evalLetIn node;
             assignment = evalAssignment node;
@@ -438,7 +436,8 @@ rec {
           let thunk = thunkOrValue;
           in _.do
             (while {_ = "adding recursive scope to binding '${name}'";})
-            (thunk.unsafeAddBefore ({_, ...}: 
+            #(thunk.unsafeAddBefore ({_, ...}: 
+            (thunk.forkWithBefore ({_, ...}: 
               _.do
                 # Before each nested thunk resolution, we update its scope with the fixed set
                 # so that we always see the fixed versions.
@@ -829,39 +828,35 @@ rec {
       attrSetParam = evalAttrSetParam param arg;
     };
 
-  # Evaluate a lambda param expression down to a lambda that makes new scope from an arg,
   # evalSimpleParam :: AST -> Eval (a -> Eval Set)
   evalSimpleParam = param: arg: {_, ...}:
     _.do
       (while {_ = "evaluating 'simpleParam' node";})
       (appendScope { ${getParamName param} = arg; });
 
-  # Evaluate a lambda param expression down to a lambda that makes new scope from an arg,
   # evalAttrSetParam :: AST -> Eval (a -> Eval Set)
   evalAttrSetParam = param: arg: {_, ...}:
     _.do
       (while {_ = "evaluating 'attrSetParam' node";})
-      ({_, ...}: _.do
-        (while {_ = "merging 'attrSetParam' node with arg";})
-        (guardAttrSetParam arg param)
-        # Add arg to scope so default Thunks contain it
-        (appendScope arg)
-        # Add ASTs to the scope to break mutual recursion
-        (traverse
-          (p: {_, ...}:
-            let name = getParamName p;
-            in _.when (!(arg ? ${name})) (appendScope { ${name} = p.default; }))
-          (defaultParamAttrs param))
-        # Thunkify the defaults for the return value
-        (traverse
-          (p: {_, ...}:
-            let name = getParamName p;
-            in _.when (!(arg ? ${name})) ({_, ...}: _.do
-              {thunk = Thunk p.default;}
-              ({thunk, _}: _.appendScope { ${name} = thunk; })))
-          (defaultParamAttrs param)));
+      (while {_ = "merging 'attrSetParam' node with arg";})
+      (guardAttrSetParam arg param)
+      # Add arg to scope so default Thunks contain it
+      (appendScope arg)
+      # Add ASTs to the scope to break mutual recursion
+      (traverse
+        (p: {_, ...}:
+          let name = getParamName p;
+          in _.when (!(arg ? ${name})) (appendScope { ${name} = p.default; }))
+        (defaultParamAttrs param))
+      # Thunkify the defaults for the return value
+      (traverse
+        (p: {_, ...}:
+          let name = getParamName p;
+          in _.when (!(arg ? ${name})) ({_, ...}: _.do
+            {thunk = Thunk p.default;}
+            ({thunk, _}: _.appendScope { ${name} = thunk; })))
+        (defaultParamAttrs param));
 
-  # Evaluate a${self}
   # Evaluate a lambda expression down to a Thunk.
   # The only time this needs forcing is during application, where we evaluate
   # the argument in the calling context, and any default arguments in the thunk's context.
