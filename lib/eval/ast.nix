@@ -430,9 +430,8 @@ rec {
       then evalRecBindingList node.bindings
       else evalBindingList node.bindings);
 
-  fixRecScope = depth: thunkAttrs: {_, ...}:
-    if depth == 0 then _.pure thunkAttrs
-    else _.traverseAttrs
+  fixRecScope = thunkAttrs: {_, ...}:
+    _.traverseAttrs
       (name: thunkOrValue: {_, ...}:
         if !(isThunk thunkOrValue) then _.pure thunkOrValue
         else 
@@ -443,7 +442,7 @@ rec {
               _.do
                 # Before each nested thunk resolution, we update its scope with the fixed set
                 # so that we always see the fixed versions.
-                {scope = fixRecScope (depth - 1) thunkAttrs;}
+                {scope = fixRecScope thunkAttrs;}
                 ({scope, _, ...}: _.appendScope scope))))
       thunkAttrs;
 
@@ -455,7 +454,7 @@ rec {
       {nonRecAttrs = evalBindingList bindings;}
       # First create a version of the bindings that can see each other and that when they resolve
       # a thunk, that thunk can also see the other values.
-      ({nonRecAttrs, _, ...}: _.bind (fixRecScope 5 nonRecAttrs));
+      ({nonRecAttrs, _, ...}: _.bind (fixRecScope nonRecAttrs));
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r: {_, ...}:
     _.do
