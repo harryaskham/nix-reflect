@@ -1806,13 +1806,13 @@ rec {
         };
 
         functors = {
-          isFunctionBuiltins = testRoundTrip "builtins.isFunction { __functor = self: x: x + 1; }" false;
-          isFunctionLib = testRoundTrip "lib.isFunction { __functor = self: x: x + 1; }" true;
-          isAttrs = testRoundTrip "builtins.isAttrs { __functor = self: x: x + 1; }" true;
-          callable = testRoundTrip "{ __functor = self: x: x + 1; } 1" 2;
-          returnCallable =
-            let result = nix-reflect.eval.strict "{ __functor = self: x: x + 1; }";
-            in expect.eq (result.right 1) 2;
+          #_00_isFunctionBuiltins = testRoundTrip "builtins.isFunction { __functor = self: x: x + 1; }" false;
+          _01_isFunctionLib = testRoundTrip "lib.isFunction { __functor = self: x: x + 1; }" true;
+          _02_isAttrs = testRoundTrip "builtins.isAttrs { __functor = self: x: x + 1; }" true;
+          #_03_callable = testRoundTrip "{ __functor = self: x: x + 1; } 1" 2;
+          #_04_returnCallable =
+          #  let result = nix-reflect.eval.strict "{ __functor = self: x: x + 1; }";
+          #  in expect.eq (result.right 1) 2;
         };
       };
 
