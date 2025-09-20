@@ -1480,7 +1480,7 @@ rec {
       };
 
       _07_comparison = {
-        equality = {
+        equality = solo {
           attrEqual = testRoundTrip "{a = 1;} == {a = 1;}" true;
           attrNotEqual = testRoundTrip "{a = 1;} == {a = 2;}" false;
           boolEqual = testRoundTrip "true == true" true;
@@ -1550,7 +1550,7 @@ rec {
           #  in [(pointerEqual f f) (pointerEqual f g)]
           #'' [false false];
         };
-        nested = {
+        nested = solo {
           listOrdering.one = testRoundTrip "[1] < [2]" true;
           listOrdering.two = testRoundTrip "[1 2] < [2 1]" true;
           listOrdering.twoRev = testRoundTrip "[1 1] < [1 2]" true;
@@ -1690,7 +1690,7 @@ rec {
           independent = testRoundTrip "let x = (let y = 1; in y); z = (let w = 2; in w); in x + z" 3;
           dependent = testRoundTrip "let x = 1; y = let z = x + 1; in z * 2; in y" 4;
         };
-        recursive = {
+        recursive = solo {
           _00_simple = testRoundTrip "let x = y; y = 1; in x" 1;
           _01_mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
           _02_complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
@@ -1779,24 +1779,14 @@ rec {
       };
 
       # Functions
-      _11_functions = {
-        returnNixLambda =
-          let result = evalAST "(x: builtins.add) {}";
-          in expect.eq (result.fmap (f: f 40 2)).right 42;
-        applyNixLambda = testRoundTrip "(x: builtins.add) {} 40 2" 42;
-        returnEvaluatedLambda =
-          let result = evalAST "(x: x + 2)";
-          in expect.eq ((result.fmap (f: f 40)).right or null) 42;
-        applyEvaluatedLambda = testRoundTrip "(x: x + 2) 40" 42;
-        applyEvaluatedLambdaNested = testRoundTrip "(x: y: x + y) 40 2" 42;
-        returnEvaluatedLambdaNestedMixedApplication =
-          let result = evalAST' "(x: y: x + y) 40";
-          in expect.eq ((result.fmap (f: f 2)).right or null) 42;
-        identity = testRoundTrip "let f = x: x; in f 42" 42;
-        const = testRoundTrip "let f = x: y: x; in f 1 2" 1;
-        
+      _11_functions = solo {
+        _00_smoke = {
+          identity = testRoundTrip "let f = x: x; in f 42" 42;
+          const = testRoundTrip "let f = x: y: x; in f 1 2" 1;
+        };
+
         # Edge case tests for function parameters and applications
-        simpleParams = {
+        _01_simpleParams = {
           identity = testRoundTrip "(x: x) 42" 42;
           arithmetic = testRoundTrip "(x: x + 1) 5" 6;
           multiple = testRoundTrip "(x: y: x + y) 3 4" 7;
@@ -1804,7 +1794,7 @@ rec {
           currying = testRoundTrip "let f = x: y: z: x + y + z; in f 1 2 3" 6;
         };
         
-        attrParams = {
+        _02_attrParams = {
           _00_simple = testRoundTrip "({a}: a) {a = 42;}" 42;
           _01_multiple = testRoundTrip "({a, b}: a + b) {a = 1; b = 2;}" 3;
           #_02_withDefaults = testRoundTrip "({a ? 1, b}: a + b) {b = 2;}" 3;
@@ -1815,8 +1805,23 @@ rec {
           #_07_dependentTwoDefaults = (testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3);
           #_08_mixedParams = testRoundTrip "({a, b ? 10}: a + b) {a = 5;}" 15;
         };
-        
-        scopeAndClosure = {
+
+        _03_evaluatedLambdas = {
+          returnNixLambda =
+            let result = evalAST "(x: builtins.add) {}";
+            in expect.eq (result.fmap (f: f 40 2)).right 42;
+          applyNixLambda = testRoundTrip "(x: builtins.add) {} 40 2" 42;
+          returnEvaluatedLambda =
+            let result = evalAST "(x: x + 2)";
+            in expect.eq ((result.fmap (f: f 40)).right or null) 42;
+          applyEvaluatedLambda = testRoundTrip "(x: x + 2) 40" 42;
+          applyEvaluatedLambdaNested = testRoundTrip "(x: y: x + y) 40 2" 42;
+          returnEvaluatedLambdaNestedMixedApplication =
+            let result = evalAST' "(x: y: x + y) 40";
+            in expect.eq ((result.fmap (f: f 2)).right or null) 42;
+        };
+
+        _04_scopeAndClosure = {
           closure = testRoundTrip "let x = 1; f = y: x + y; in f 2" 3;
           nestedClosure = testRoundTrip "let x = 1; in (let y = 2; f = z: x + y + z; in f 3)" 6;
           shadowParameter = testRoundTrip "let x = 1; f = x: x + 1; in f 5" 6;
@@ -1824,20 +1829,20 @@ rec {
           argsOverWiths = testRoundTrip "(arg: with { arg = 1; }; arg) 2" 2;
         };
         
-        partialApplication = {
+        _05_partialApplication = {
           curried = testRoundTrip "let add = x: y: x + y; add5 = add 5; in add5 3" 8;
           complex = testRoundTrip "let f = a: b: c: a + b * c; g = f 1; h = g 2; in h 3" 7;
           withAttrs = testRoundTrip "let f = {a}: b: a + b; g = f {a = 10;}; in g 5" 15;
         };
         
-        errorCases = {
+        _06_errorCases = {
           missingParam = expectEvalError RuntimeError "({a, b}: a + b) {a = 1;}";
           unknownParam = expectEvalError RuntimeError "({a}: a) {a = 1; b = 2;}";
           wrongType = expectEvalError TypeError "({a}: a) 42";
           nestedApplication = testRoundTrip "((x: y: x + y) 1) 2" 3;
         };
 
-        functors = {
+        _07_functors = {
           #_00_isFunctionBuiltins = testRoundTrip "builtins.isFunction { __functor = self: x: x + 1; }" false;
           _01_isFunctionLib = testRoundTrip "lib.isFunction { __functor = self: x: x + 1; }" true;
           _02_isAttrs = testRoundTrip "builtins.isAttrs { __functor = self: x: x + 1; }" true;
