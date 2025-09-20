@@ -248,7 +248,7 @@ rec {
 
   forceEvalNodeMRunningBinOpsExcept = op: node: {_, ...}:
     _.do
-      (whileV 2 {_ = "evaluating AST node to WHNF (running BinOps): ${printBoxed node}";})
+      (whileV 2 {_ = "evaluating AST node to WHNF (running BinOps except ${op}): ${printBoxed node}";})
       {result = forceM (evalNodeM node);}
       ({result, _}: if isBinOp result && result.op != op then _.bind result.run else _.pure result);
 
@@ -1135,14 +1135,14 @@ rec {
   testRoundTripSame = expr: expected: testRoundTripBoth expr expected expected;
 
   _tests = with tests; suite {
-    _failing = {
-      #_01_deep._00_noBinOps = testRoundTrip "let a = let b = let c = 1; in c; in b; in a" 1;
-      #_01_deep._01_binOps = testRoundTrip "let a = let b = let c = 1; in c + 1; in b + 1; in a + 1" 4;
-      #_02_dependent = testRoundTrip "let x = 1; y = let z = x + 1; in z * 2; in y" 4;
+    _failing = solo {
+      _01_deep._00_noBinOps = testRoundTrip "let a = let b = let c = 1; in c; in b; in a" 1;
+      _01_deep._01_binOps = testRoundTrip "let a = let b = let c = 1; in c + 1; in b + 1; in a + 1" 4;
+      _02_dependent = testRoundTrip "let x = 1; y = let z = x + 1; in z * 2; in y" 4;
     };
 
     evalAST = {
-      _00_smoke = solo {
+      _00_smoke = {
         _00_int = testRoundTripSame "1" 1;
         _01_float = testRoundTripSame "1.0" 1.0;
         _02_string = testRoundTripSame ''"hello"'' "hello";
