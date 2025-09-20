@@ -176,7 +176,7 @@ rec {
   isEvalError = x: x ? __isEvalError;
 
   # Handles forcing a thunk with current state cache and writing it back
-  force = x: {_}:
+  force = x: {_, ...}:
     if !(isThunk x)
       then _.do
         (whileV 4 {_ = "not forcing a non-thunk of type ${lib.typeOf x}";})
@@ -218,7 +218,8 @@ rec {
             __setBefore = before: mk (args // { inherit before; });
 
             # Add to the before operation. If mode == newThunk, creates a new cached thunk, otherwise
-            # unsafely overwrites the thunk (only used for fine control over e.g. rec attrset creation)
+            # unsafely overwrites the thunk (only used for fine control over e.g. rec attrset creation
+            # where there is no other reference to the thunk held yet)
             __addBefore = mode: newBefore: {_, ...}:
               let
                 before' =
@@ -898,6 +899,7 @@ rec {
   throws = e: {_, ...}: _.throws e;
   guard = cond: e: {_, ...}: _.guard cond e;
   while = msg: {_, ...}: _.while msg;
+  while_ = msg: {_, ...}: _.while_ msg;
   whileV = v: msg: {_, ...}: _.whileV v msg;
   whileV_ = v: msg: {_, ...}: _.whileV_ v msg;
   when = cond: m: {_, ...}: _.when cond m;
@@ -1061,6 +1063,7 @@ rec {
                 in this.whileV_ v s;
 
               while = this: s: this.whileV 3 s;
+              while_ = this: s: this.whileV_ 3 s;
 
               guard = this: cond: e: 
                 if cond 
