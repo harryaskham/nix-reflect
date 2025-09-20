@@ -553,8 +553,8 @@ rec {
         ">=" = _.pure true;
       })
       else _.do
-        {l = force lSnoc.head;}
-        {r = force rSnoc.head;}
+        {l = forceEvalNodeMRunningBinOps lSnoc.head;}
+        {r = forceEvalNodeMRunningBinOps rSnoc.head;}
         ({_, l, r}: _.do
           {eq = runBinaryOp l "==" r;}
           ({eq, _}:
@@ -728,7 +728,7 @@ rec {
   evalUnaryOp = node: {_, ...}:
     _.do
       (while {_ = "evaluating 'unary' node";})
-      {operand = evalNodeM node.operand;}
+      {operand = forceEvalNodeMRunningBinOps node.operand;}
       ({_, operand}: _.pure (switch node.op {
         "!" = (!operand);
         "-" = (-operand);
@@ -738,7 +738,7 @@ rec {
   evalConditional = node: {_, ...}:
     _.do
       (while {_ = "evaluating 'conditional' node";})
-      {cond = forceEvalNodeM node.cond;}
+      {cond = forceEvalNodeMRunningBinOps node.cond;}
       ({_, cond}: _.do
         (guard (lib.isBool cond) (TypeError ''
           if: got non-bool condition of type ${lib.typeOf cond}:
