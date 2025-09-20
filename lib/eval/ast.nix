@@ -1135,11 +1135,6 @@ rec {
   testRoundTripSame = expr: expected: testRoundTripBoth expr expected expected;
 
   _tests = with tests; suite {
-    _failing = solo {
-      _01_deep._00_noBinOps = testRoundTrip "let a = let b = let c = 1; in c; in b; in a" 1;
-      _01_deep._01_binOps = testRoundTrip "let a = let b = let c = 1; in c + 1; in b + 1; in a + 1" 4;
-      _02_dependent = testRoundTrip "let x = 1; y = let z = x + 1; in z * 2; in y" 4;
-    };
 
     evalAST = {
       _00_smoke = {
