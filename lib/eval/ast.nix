@@ -341,7 +341,7 @@ rec {
           (pure node.name)
         else _.do
           (while {_ = "evaluating a name from a '${node.nodeType}' node";})
-          (forceEvalNodeM node);}
+          (forceEvalNodeMRunningBinOps node);}
       ({_, name}: _.do
         (guard (lib.isString name) (RuntimeError ''
           Expected string identifier name, got ${lib.typeOf name}
@@ -514,11 +514,11 @@ rec {
   guardBinaryOp = l: op: r: {_, ...}:
     _.do
       (while {_ = "guarding argument types to ${op} op";})
-      (guard (elem (sig l) ["Value" "List" "Set" "Functor" "Function"]) (TypeError ''
+      (guard (elem (sig l) ["Value" "List" "Attrs" "Functor" "Function"]) (TypeError ''
         ${op}: got non-value left operand of type ${sig l}:
           ${_ph_ l}
       ''))
-      (guard (elem (sig r) ["Value" "List" "Set" "Functor" "Function"]) (TypeError ''
+      (guard (elem (sig r) ["Value" "List" "Attrs" "Functor" "Function"]) (TypeError ''
         ${op}: got non-value right operand of type ${sig r}:
           ${_ph_ r}
         ''))
@@ -813,8 +813,8 @@ rec {
       (guard (isBinOp binOp && binOp.op == ".") (TypeError ''
         Expected attribute access BinOp; got '${getT binOp}'
       ''))
-      {attrs = forceEvalNodeM binOp.lhs;}
-      {path = forceEvalNodeM binOp.rhs;}
+      {attrs = forceEvalNodeMRunningBinOps binOp.lhs;}
+      {path = forceEvalNodeMRunningBinOps binOp.rhs;}
       ({attrs, path, _}: _.bind (traversePath binOp.catchable attrs path));
 
   # evalUnaryOp :: AST -> Eval a
@@ -1013,7 +1013,7 @@ rec {
   # Apply an already-evaluated function to two already-evaluated arguments.
   # apply1 :: (EvaluatedLambda | function) -> a -> b -> Eval c
   apply2 = func_: l: r: {_, ...}: _.do
-    {func = forceEvalNodeM func_;}
+    {func = forceEvalNodeMRunningBinOps func_;}
     ({func, _}: _.do
       (guardApplicable func)
       {func' = apply1 func l;}
@@ -1050,7 +1050,7 @@ rec {
       ({_, ...}: _.do
         {func = if isEvaluatedLambda func_ || builtins.isFunction func_                                                                                                                                                     
                 then pure func_                                                                                                                                                                                             
-                else forceEvalNodeM func_;}    
+                else forceEvalNodeMRunningBinOps func_;}    
         ({func, _}: _.do
           (guardApplicable func)
           (apply1 func argNode)));
@@ -1080,14 +1080,14 @@ rec {
     _.do
       (while {_ = "evaluating 'with' node";})
       # Env as an attrset in WHNF
-      {env = forceEvalNodeM node.env;}
+      {env = forceEvalNodeMRunningBinOps node.env;}
       ({_, env}: _.saveScope ({_, ...}: _.do
         # A non-attrs with body is valid as long as we don't try to access any attributes
         # that are not in the scope.
         # e.g. with []; 1 == 1, let a = 1; in with []; a == 1
         # TODO: However `with {a=1;}; with []; a` is an error?
         (when (lib.isAttrs env) (appendWithScope env))
-        (forceEvalNodeM node.body)));
+        (forceEvalNodeMRunningBinOps node.body)));
 
   # Evaluate an assert expression
   # evalAssert :: AST -> Eval a
@@ -1170,7 +1170,7 @@ rec {
   evalInterpolation = node: {_, ...}:
     _.do
       (while {_ = "evaluating 'interpolation' node";})
-      {value = forceEvalNodeM node.body;}
+      {value = forceEvalNodeMRunningBinOps node.body;}
       ({value, _}: _.bind (coerceToString value));
 
   # TODO: This needs to operate as a closure
