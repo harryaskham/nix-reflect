@@ -267,6 +267,12 @@ rec {
       {result = forceM (evalNodeM node);}
       ({result, _}: if isBinOp result && result.op != op then _.bind result.run else _.pure result);
 
+  forceEvalNodeMRunningBinOpsAndLambdas = node: {_, ...}:
+    _.do
+      (whileV 2 {_ = "evaluating AST node to WHNF (running BinOps and Lambdas): ${lib.typeOf node}";})
+      {result = forceEvalNodeMRunningBinOps node;}
+      ({result, _}: if isEvaluatedLambda result then _.bind (toNixM result) else _.pure result);
+
   forceM = m: {_, ...}:
     _.do
       (whileV 5 {_ = "forcing a monadic value";})
@@ -508,6 +514,14 @@ rec {
   guardBinaryOp = l: op: r: {_, ...}:
     _.do
       (while {_ = "guarding argument types to ${op} op";})
+      (guard (elem (sig l) ["Value" "List" "Set" "Functor" "Function"]) (TypeError ''
+        ${op}: got non-value left operand of type ${sig l}:
+          ${_ph_ l}
+      ''))
+      (guard (elem (sig r) ["Value" "List" "Set" "Functor" "Function"]) (TypeError ''
+        ${op}: got non-value right operand of type ${sig r}:
+          ${_ph_ r}
+        ''))
       (switch op {
         "+" = guardOneBinaryOp "+" [["int" "float"] ["string" "path"]] l r;
         "-" = guardOneBinaryOp "-" [["int" "float"]] l r;
@@ -741,13 +755,13 @@ rec {
           # All other binary operators without short-circuiting.
           else _.do
             (while {_ = "evaluating binary operation '${self.op}'";})
-            {l = forceEvalNodeMRunningBinOps self.lhs;}
-            {r = forceEvalNodeMRunningBinOps self.rhs;}
+            {l = forceEvalNodeMRunningBinOpsAndLambdas self.lhs;}
+            {r = forceEvalNodeMRunningBinOpsAndLambdas self.rhs;}
             ({l, r, _}: _.do
               (guardBinaryOp l self.op r)
               ( if isList l && isList r && elem self.op listwiseBinaryOps
                 then runBinaryOpListwise l self.op r
-                else if isAttrs l && isAttrs r && elem self.op setwiseBinaryOps
+                else if sig l == "Value" && sig r == "Value" && isAttrs l && isAttrs r && elem self.op setwiseBinaryOps
                 then runBinaryOpSetwise l self.op r
                 else runBinaryOp l self.op r )));
     })));
