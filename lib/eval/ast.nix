@@ -13,6 +13,8 @@ rec {
   # Module callable as eval.ast
   __functor = self: self.evalAST;
 
+  strictness = strict: if strict then "strictly" else "lazily";
+
   /*
   Parse the expression in the Eval monad and drop the state from the result.
 
@@ -24,7 +26,11 @@ rec {
   runAST_ = strict: expr:
     maybePrintStackTrace (
     (do
-      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n\n${_p_ expr}";})
+      (whileV 1 {_ = _b_ ''
+        ${strictness strict} evaluating expression or AST node:
+        
+        ${_p_ expr}
+      '';})
       (evalM strict expr))
     .run (EvalState.mempty {})
     );
@@ -36,7 +42,11 @@ rec {
   evalAST_ = strict: expr:
     maybePrintStackTrace (
     (do
-      (whileV 1 {_ = "evaluating string or AST node (${lib.typeOf expr})\n\n${_p_ expr}";})
+      (whileV 1 {_ = _b_ ''
+        ${strictness strict} evaluating expression or AST node:
+        
+        ${_p_ expr}
+      '';})
       (evalM strict expr))
     .run_ (EvalState.mempty {})
     );
@@ -58,7 +68,7 @@ rec {
     in with (log.v 1).call "evalM" strict expr ___;
     {_, ...}: _.do
       (whileV 2 {_ = (_b_ ''
-        evaluating parsed AST node (strict=${boolToString strict}):
+        ${strictness strict} evaluating parsed AST node:
 
         ${printBoxed parsed}
       '');})
@@ -83,6 +93,7 @@ rec {
         '');})
         (pure result));
 
+  sig = toNixSignature;
   toNixSignature = x:
     log.while "building dispatch signature for value:\n${_p_ x}" (
     if isEvalError x then "EvalError"
@@ -188,8 +199,12 @@ rec {
           (whileV 3 {_ = "not evaluating an EvaluatedLambda in evalNodeM";})
           (pure node)
         else if isBinOp node then _.do
-          (whileV 3 {_ = "not evaluating a BinOp in evalNodeM";})
-          (pure node)
+          #if node.op == "." then _.do
+          #  (whileV 3 {_ = "not evaluating a '.' BinOp in evalNodeM";})
+          #  (pure node)
+          #else _.do
+            (whileV 3 {_ = "running a BinOp in evalNodeM";})
+            (node.run)
         else _.do
           (whileV 1 {_ = "evaluating AST node:\n\n${toString node}";})
           (pushStack node)
@@ -527,39 +542,88 @@ rec {
         ">=" = l >= r;
       }));
 
+  runBinaryOpThunks = l: op: r: {_, ...}:
+    _.do
+      (while {_ = "running binary operation ${op} with thunks";})
+      {binOp = BinOp' l op r;}
+      ({binOp, _}: _.bind (binOp.run));
+
   runBinaryOpListwise = ls: op: rs: {_, ...}:
-    let lSnoc = maybeSnoc ls;
-        rSnoc = maybeSnoc rs;
-    in
-      if lSnoc == null && rSnoc == null
-      then (switch op {
-        "<" = _.pure false;
-        ">" = _.pure false;
-        "<=" = _.pure false;
-        ">=" = _.pure true;
-      })
-      else if lSnoc == null
-      then (switch op {
-        "<" = _.pure true;
-        ">" = _.pure false;
-        "<=" = _.pure true;
-        ">=" = _.pure false;
-      })
-      else if rSnoc == null
-      then (switch op {
-        "<" = _.pure false;
-        ">" = _.pure true;
-        "<=" = _.pure false;
-        ">=" = _.pure true;
-      })
-      else _.do
-        {l = forceEvalNodeMRunningBinOps lSnoc.head;}
-        {r = forceEvalNodeMRunningBinOps rSnoc.head;}
-        ({_, l, r}: _.do
-          {eq = runBinaryOp l "==" r;}
-          ({eq, _}:
-            if eq then _.bind (runBinaryOpListwise lSnoc.tail op rSnoc.tail)
-            else _.bind (runBinaryOp l op r)));
+    let 
+      lSnoc = maybeSnoc ls;
+      rSnoc = maybeSnoc rs;
+    in _.do
+      (whileV 4 {_ = "running listwise binary operation ${op} (sizes ${toString (size ls)}, ${toString (size rs)})";})
+      ( if lSnoc == null && rSnoc == null then switch op {
+          "==" = pure true;
+          "!=" = pure false;
+          "<" = pure false;
+          ">" = pure false;
+          "<=" = pure true;
+          ">=" = pure true;
+        }
+        else if lSnoc == null then switch op {
+          "==" = pure false;
+          "!=" = pure true;
+          "<" = pure true;
+          ">" = pure false;
+          "<=" = pure true;
+          ">=" = pure false;
+        }
+        else if rSnoc == null then switch op {
+          "==" = pure false;
+          "!=" = pure true;
+          "<" = pure false;
+          ">" = pure true;
+          "<=" = pure false;
+          ">=" = pure true;
+        }
+        else {_, ...}: _.do
+          (whileV 4 {_ = "recursing listwise binary operation ${op} (${sig lSnoc.head} ${op} ${sig rSnoc.head})";})
+          {eq = runBinaryOpThunks lSnoc.head "==" rSnoc.head;}
+          ({eq, _}: _.do
+            (if op == "==" && !eq
+              then pure false
+            else if op == "!=" && eq
+              then pure false
+            else if (op == "==" && eq) || (op == "!=" && !eq) || (op != "==" && op != "!=" && eq)
+              # Can't decide based on this element, so recurse into tail.
+              then runBinaryOpListwise lSnoc.tail op rSnoc.tail
+            else 
+              # For >, >=, <, <=, we just need to compare the first unequal entry.
+              runBinaryOpThunks lSnoc.head op rSnoc.head)));
+
+  # Only needs to support "==" and "!="; compares lists of sorted [name value].
+  runBinaryOpSetwise = ls: op: rs: {_, ...}:
+    _.do
+      (whileV 4 {_ = "recursing setwise binary operation (${sig ls} ${op} ${sig rs})";})
+      ({_, ...}:
+        let
+          sizeLs = size ls;
+          sizeRs = size rs;
+          sortedLs = sorted (attrNames ls);
+          sortedRs = sorted (attrNames rs);
+        in
+        if (sizeLs != sizeRs) then switch op {
+          "==" = _.do
+            (whileV 4 {_ = "unequal set sizes in == check on sets: ${sizeLs} != ${sizeRs}";})
+            (pure false);
+          "!=" = _.do
+            (whileV 4 {_ = "unequal set sizes in != check on sets: ${sizeLs} != ${sizeRs}";})
+            (pure true);
+        }
+        else 
+          if sortedLs != sortedRs then switch op {
+          "==" = _.do
+            (whileV 4 {_ = "unequal set keys in == check on sets ${_p_ sortedLs} != ${_p_ sortedRs}";})
+            (pure false);
+          "!=" = _.do
+            (whileV 4 {_ = "unequal set keys in != check on sets ${_p_ sortedLs} != ${_p_ sortedRs}";})
+            (pure true);
+        }
+        else _.do
+          (whileV 4 {_ = "converting setwise binary operation ${op} to listwise";})
+          (runBinaryOpListwise (sortedAttrValues ls) op (sortedAttrValues rs)));
 
   knownBinaryOps = [
     "+"
@@ -585,6 +649,13 @@ rec {
     ">"
     "<="
     ">="
+    "=="
+    "!="
+  ];
+
+  setwiseBinaryOps = [
+    "=="
+    "!="
   ];
 
   evalBooleanAndOperation = l: rhsThunk: {_, ...}:
@@ -617,19 +688,25 @@ rec {
 
   BinOp = node: {_, ...}: _.do
     (while {_ = "constructing '${node.op}' BinOp";})
-    (guard (elem node.op knownBinaryOps) (RuntimeError ''
-      Unsupported binary operator: ${node.op}
-    ''))
     {lhs = Thunk node.lhs;}
     {rhs = Thunk node.rhs;}
-    ({lhs, rhs, _}: _.pure (fix (self: {
+    ({lhs, rhs, _}: _.bind (BinOp' lhs node.op rhs));
+
+  BinOp' = lhs_: op_: rhs_: {_, ...}: _.do
+    (while {_ = "constructing '${op_}' BinOp' from thunks";})
+    (guard (elem op_ knownBinaryOps) (RuntimeError ''
+      Unsupported binary operator: ${op_}
+    ''))
+    (pure (fix (self: {
       __isBinOp = true;
-      inherit lhs rhs;
-      inherit (node) op;
+      lhs = lhs_;
+      rhs = rhs_;
+      op = op_;
       catchable = false;
-      __toString = self: "BinOp<${node.lhs.nodeType} ${self.op} ${node.rhs.nodeType}>";
+      __toString = self: "BinOp<${self.lhs.nodeType} ${self.op} ${self.rhs.nodeType}>";
+
       run = {_, ...}: _.do
-        (while {_ = "running '${node.op}' BinOp";})
+        (while {_ = "running '${self.op}' BinOp";})
         ({_, ...}:
           # Because or takes precedence, this can only ever be a raw access without or, so this
           # shouldn't be catchable.
@@ -668,9 +745,11 @@ rec {
             {r = forceEvalNodeMRunningBinOps self.rhs;}
             ({l, r, _}: _.do
               (guardBinaryOp l self.op r)
-              (if isList l && isList r && elem self.op listwiseBinaryOps
+              ( if isList l && isList r && elem self.op listwiseBinaryOps
                 then runBinaryOpListwise l self.op r
-                else runBinaryOp l self.op r)));
+                else if isAttrs l && isAttrs r && elem self.op setwiseBinaryOps
+                then runBinaryOpSetwise l self.op r
+                else runBinaryOp l self.op r )));
     })));
 
   isBinOp = x: x ? __isBinOp;
@@ -745,8 +824,6 @@ rec {
             ${_ph_ cond}
         ''))
         (if cond
-         #then evalNodeM node."then"
-         #else evalNodeM node."else"));
          then Thunk node."then"
          else Thunk node."else"));
 
@@ -1137,7 +1214,7 @@ rec {
   _tests = with tests; suite {
 
     evalAST = {
-      _00_smoke = {
+      _00_smoke = solo {
         _00_int = testRoundTripSame "1" 1;
         _01_float = testRoundTripSame "1.0" 1.0;
         _02_string = testRoundTripSame ''"hello"'' "hello";
@@ -1480,91 +1557,91 @@ rec {
       };
 
       _07_comparison = {
-        equality = solo {
-          attrEqual = testRoundTrip "{a = 1;} == {a = 1;}" true;
-          attrNotEqual = testRoundTrip "{a = 1;} == {a = 2;}" false;
-          boolEqual = testRoundTrip "true == true" true;
-          boolNotEqual = testRoundTrip "true == false" false;
-          emptyAttrEqual = testRoundTrip "{} == {}" true;
-          emptyEqual = testRoundTrip "[] == []" true;
-          floatEqual = testRoundTrip "1.0 == 1.0" true;
-          floatIntEqual = testRoundTrip "1.0 == 1" true;
-          floatNotEqual = testRoundTrip "1.0 == 2.0" false;
-          intEqual = testRoundTrip "1 == 1" true;
-          intFloatEqual = testRoundTrip "1 == 1.0" true;
-          intNotEqual = testRoundTrip "1 == 2" false;
-          #lambda = testRoundTrip "(a: a) == (b: b)" false;
-          lambdaSelf = testRoundTrip "let f = (a: a); in f == f" false;
-          listEqual = testRoundTrip "[1 2] == [1 2]" true;
-          listNotEqual = testRoundTrip "[1 2] == [2 1]" false;
-          nullEqual = testRoundTrip "null == null" true;
-          nullNotEqual = testRoundTrip "null == 1" false;
-          parentheses = testRoundTrip "(1 == 1)" true;
-          stringEqual = testRoundTrip ''"hello" == "hello"'' true;
-          stringNotEqual = testRoundTrip ''"hello" == "world"'' false;
+        _00_equality = solo {
+          _00_boolEqual = testRoundTrip "true == true" true;
+          _01_boolNotEqual = testRoundTrip "true == false" false;
+          _02_emptyListEqual = testRoundTrip "[] == []" true;
+          _03_floatEqual = testRoundTrip "1.0 == 1.0" true;
+          _04_floatIntEqual = testRoundTrip "1.0 == 1" true;
+          _05_floatNotEqual = testRoundTrip "1.0 == 2.0" false;
+          _06_intEqual = testRoundTrip "1 == 1" true;
+          _07_intFloatEqual = testRoundTrip "1 == 1.0" true;
+          _08_intNotEqual = testRoundTrip "1 == 2" false;
+          _10_nullEqual = testRoundTrip "null == null" true;
+          _11_nullNotEqual = testRoundTrip "null == 1" false;
+          _09_parentheses = testRoundTrip "(1 == 1)" true;
+          _10_stringEqual = testRoundTrip ''"hello" == "hello"'' true;
+          _12_stringNotEqual = testRoundTrip ''"hello" == "world"'' false;
+          _13_listEqual = testRoundTrip "[1 2] == [1 2]" true;
+          _14_listNotEqual = testRoundTrip "[1 2] == [2 1]" false;
+          _14_attrEqual = testRoundTrip "{a = 1;} == {a = 1;}" true;
+          _15_attrNotEqual = testRoundTrip "{a = 1;} == {a = 2;}" false;
+          _16_emptyAttrEqual = testRoundTrip "{} == {}" true;
+          _17_lambda = testRoundTrip "(a: a) == (b: b)" false;
+          _18_lambdaSelf = testRoundTrip "let f = (a: a); in f == f" false;
         };
-        inequality = {
-          intNotEqual = testRoundTrip "1 != 2" true;
-          intEqual = testRoundTrip "1 != 1" false;
-          floatNotEqual = testRoundTrip "1.0 != 2.0" true;
-          floatEqual = testRoundTrip "1.0 != 1.0" false;
-          stringNotEqual = testRoundTrip ''"hello" != "world"'' true;
-          stringEqual = testRoundTrip ''"hello" != "hello"'' false;
-          boolNotEqual = testRoundTrip "true != false" true;
-          boolEqual = testRoundTrip "true != true" false;
-          nullNotEqual = testRoundTrip "null != 1" true;
-          nullEqual = testRoundTrip "null != null" false;
+        _01_inequality = {
+          _00_intNotEqual = testRoundTrip "1 != 2" true;
+          _01_intEqual = testRoundTrip "1 != 1" false;
+          _02_floatNotEqual = testRoundTrip "1.0 != 2.0" true;
+          _03_floatEqual = testRoundTrip "1.0 != 1.0" false;
+          _04_stringNotEqual = testRoundTrip ''"hello" != "world"'' true;
+          _05_stringEqual = testRoundTrip ''"hello" != "hello"'' false;
+          _07_boolNotEqual = testRoundTrip "true != false" true;
+          _08_boolEqual = testRoundTrip "true != true" false;
+          _09_nullNotEqual = testRoundTrip "null != 1" true;
+          _10_nullEqual = testRoundTrip "null != null" false;
         };
-        ordering = {
-          intLess = testRoundTrip "1 < 2" true;
-          intNotLess = testRoundTrip "2 < 1" false;
-          intLessEqual = testRoundTrip "1 <= 1" true;
-          intLessEqualFalse = testRoundTrip "2 <= 1" false;
-          intGreater = testRoundTrip "3 > 2" true;
-          intNotGreater = testRoundTrip "2 > 3" false;
-          intGreaterEqual = testRoundTrip "2 >= 2" true;
-          intGreaterEqualFalse = testRoundTrip "1 >= 2" false;
-          floatLess = testRoundTrip "1.5 < 2.5" true;
-          floatGreater = testRoundTrip "2.5 > 1.5" true;
-          intFloatLess = testRoundTrip "1 < 1.5" true;
-          floatIntGreater = testRoundTrip "1.5 > 1" true;
-          stringLess = testRoundTrip ''"a" < "b"'' true;
-          stringGreater = testRoundTrip ''"b" > "a"'' true;
-          stringEqual = testRoundTrip ''"a" <= "a"'' true;
+        _02_ordering = {
+          _00_intLess = testRoundTrip "1 < 2" true;
+          _01_intNotLess = testRoundTrip "2 < 1" false;
+          _02_intLessEqual = testRoundTrip "1 <= 1" true;
+          _03_intLessEqualFalse = testRoundTrip "2 <= 1" false;
+          _04_intGreater = testRoundTrip "3 > 2" true;
+          _05_intNotGreater = testRoundTrip "2 > 3" false;
+          _06_intGreaterEqual = testRoundTrip "2 >= 2" true;
+          _07_intGreaterEqualFalse = testRoundTrip "1 >= 2" false;
+          _08_floatLess = testRoundTrip "1.5 < 2.5" true;
+          _09_floatGreater = testRoundTrip "2.5 > 1.5" true;
+          _10_intFloatLess = testRoundTrip "1 < 1.5" true;
+          _11_floatIntGreater = testRoundTrip "1.5 > 1" true;
+          _12_stringLess = testRoundTrip ''"a" < "b"'' true;
+          _13_stringGreater = testRoundTrip ''"b" > "a"'' true;
+          _14_stringEqual = testRoundTrip ''"a" <= "a"'' true;
         };
-        edgeCases = {
-          zero = testRoundTrip "0 == 0" true;
-          negativeZero = testRoundTrip "(-0) == 0" true;
-          negativeComparison = testRoundTrip "(-1) < 0" true;
-          largeNumbers = testRoundTrip "999999999 == 999999999" true;
-          veryLargeNumbers = testRoundTrip "9223372036854775807 == 9223372036854775807" true;
-          floatPrecision = testRoundTrip "0.1 + 0.2 == 0.3" false;
-          emptyString = testRoundTrip ''"" == ""'' true;
-          emptyVsNull = testRoundTrip ''"" == null'' false;
-          boolVsInt = testRoundTrip "true == 1" false;
-          boolVsString = testRoundTrip ''true == "true"'' false;
-          #pointerEqualityTrickDoesNotWork = testRoundTrip ''
+        _03_edgeCases = {
+          _00_zero = testRoundTrip "0 == 0" true;
+          _01_negativeZero = testRoundTrip "(-0) == 0" true;
+          _02_negativeComparison = testRoundTrip "(-1) < 0" true;
+          _03_largeNumbers = testRoundTrip "999999999 == 999999999" true;
+          _04_veryLargeNumbers = testRoundTrip "9223372036854775807 == 9223372036854775807" true;
+          _05_floatPrecision = testRoundTrip "0.1 + 0.2 == 0.3" false;
+          _06_emptyString = testRoundTrip ''"" == ""'' true;
+          _07_emptyVsNull = testRoundTrip ''"" == null'' false;
+          _08_boolVsInt = testRoundTrip "true == 1" false;
+          _09_boolVsString = testRoundTrip ''true == "true"'' false;
+          #_10_pointerEqualityTrickDoesNotWork = testRoundTrip ''
           #  let pointerEqual = a: b: [ a ] == [ b ];
           #      f = a: a;
           #      g = a: a;
           #  in [(pointerEqual f f) (pointerEqual f g)]
           #'' [false false];
         };
-        nested = solo {
-          listOrdering.one = testRoundTrip "[1] < [2]" true;
-          listOrdering.two = testRoundTrip "[1 2] < [2 1]" true;
-          listOrdering.twoRev = testRoundTrip "[1 1] < [1 2]" true;
-          listOrdering.twoRevGT = testRoundTrip "[1 1] > [1 2]" false;
-          attrOrdering = expectEvalError TypeError "{a = 1;} < {a = 2;}";
-          nestedAttrs = testRoundTrip "{a = {b = 1;};} == {a = {b = 1;};}" true;
-          nestedLists = testRoundTrip "[[1 2]] == [[1 2]]" true;
-          mixedNested = testRoundTrip ''[{a = 1;}] == [{a = 1;}]'' true;
+        _04_nested = solo {
+          _00_listOrdering.one = testRoundTrip "[1] < [2]" true;
+          _00_listOrdering.two = testRoundTrip "[1 2] < [2 1]" true;
+          _00_listOrdering.twoRev = testRoundTrip "[1 1] < [1 2]" true;
+          _00_listOrdering.twoRevGT = testRoundTrip "[1 1] > [1 2]" false;
+          _01_attrOrdering = expectEvalError TypeError "{a = 1;} < {a = 2;}";
+          _02_nestedAttrs = testRoundTrip "{a = {b = 1;};} == {a = {b = 1;};}" true;
+          _03_nestedLists = testRoundTrip "[[1 2]] == [[1 2]]" true;
+          _04_mixedNested = testRoundTrip ''[{a = 1;}] == [{a = 1;}]'' true;
         };
-        chains = {
-          comparison = testRoundTrip "1 < 2 && 2 < 3" true;
-          mixed = testRoundTrip "1 == 1 && 2 != 3" true;
-          precedence = testRoundTrip "1 + 1 == 2" true;
-          complex = testRoundTrip "(1 + 2) == 3 && (4 - 1) == 3" true;
+        _05_chains = {
+          _00_comparison = testRoundTrip "1 < 2 && 2 < 3" true;
+          _01_mixed = testRoundTrip "1 == 1 && 2 != 3" true;
+          _02_precedence = testRoundTrip "1 + 1 == 2" true;
+          _03_complex = testRoundTrip "(1 + 2) == 3 && (4 - 1) == 3" true;
         };
       };
 

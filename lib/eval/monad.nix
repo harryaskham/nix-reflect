@@ -2,7 +2,7 @@
 
 let 
   inherit (nix-reflect) parser debuglib eval;
-  inherit (parser) parse isAST;
+  inherit (parser) parse isAST printASTName;
   inherit (collective-lib.typed.script-utils.ansi-utils) ansi;
 in 
   with collective-lib.typed;
@@ -511,7 +511,15 @@ rec {
       depth = size self.stackFrames;
 
       __toString = self: self.printCompleted {};
-      printTrace = {}: _ls_ (map (f: f.printTrace {}) (reverseList self.stackFrames));
+      printTrace = {}: _b_ ''
+        ${self.printStack {}}
+        ${self.printCompleted {}}
+      '';
+
+      printStack = {}: _b_ ''
+        Stack | ${toString (size self.stackFrames)} frames
+        ${_h_ (_ls_ (map (f: f.printTrace {}) (reverseList self.stackFrames)))}
+      '';
 
       printCompleted = {}: _b_ ''
         Completed | ${toString (size self.completedFrames)} frames
@@ -558,7 +566,11 @@ rec {
 
       elapsed = {}: since self.startTimestamp;
       __toString = self: with ansi; _b_ ''
-        ${style [fg.grey] (replicate (self.depth + 1) ">")} ${style [fg.grey bold] self.node.nodeType}
+        ${
+          style [fg.grey] (replicate (self.depth + 1) ">")
+        } ${
+          style [fg.grey bold] "${self.node.nodeType} ${printASTName self.node}"
+        }
       '';
       printTrace = {}: _b_ ''
         ${self}
@@ -626,6 +638,13 @@ rec {
     );
 
   assertIsDoStatement = doSelf: M: xs:
+    assert that (!(isSyntax xs)) ''
+      do: encountered unapplied syntax element:
+
+      ${_pv_ xs}
+
+      (likely missing parentheses)
+    '';
     assert that (isDoStatement M xs) ''
       do: expected a statement of form
 
@@ -895,7 +914,13 @@ rec {
     in this
     );
 
-  pure = x: {_, ...}: _.pure x;
+  isSyntax = x: x ? __isSyntax;
+  mkSyntax = f: {
+    __isSyntax = true;
+    __functor = self: f;
+  };
+
+  pure = mkSyntax (x: {_, ...}: _.pure x);
   throws = e: {_, ...}: _.throws e;
   guard = cond: e: {_, ...}: _.guard cond e;
   while = msg: {_, ...}: _.while msg;
