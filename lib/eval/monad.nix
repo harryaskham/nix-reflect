@@ -1128,13 +1128,6 @@ rec {
                         ${_ph_ mb}
                     '';
                     mb.mapState (s: compose s this.s);
-                    #mb.mapState (s:
-                    #  let s' = compose s this.s;
-                    #  in 
-                    #  (state:
-                    #    let d = scopeDiffSimple (state.publicScope {});
-                    #        logF = if d == {} then id else (log.v 5).show ("scope after bind:\n${_p_ d}");
-                    #    in logF (s' state)));
                 };
 
               sq = this: b: this.bind (_: b);

@@ -498,7 +498,7 @@ rec {
 
   guardOneBinaryOp = op: compatibleTypeSets: l: r: {_, ...}:
     _.do
-      (while {_ = "checking compatible types to ${op} op: ${_l_ compatibleTypeSets}";})
+      (whileV 3 {_ = "checking compatible types to ${op} op: ${_l_ compatibleTypeSets}";})
       (guard 
         (any id 
           (map 
@@ -759,9 +759,9 @@ rec {
             {r = forceEvalNodeMRunningBinOpsAndLambdas self.rhs;}
             ({l, r, _}: _.do
               (guardBinaryOp l self.op r)
-              ( if isList l && isList r && elem self.op listwiseBinaryOps
+              ( if sig l == "List" && sig r == "List" && elem self.op listwiseBinaryOps
                 then runBinaryOpListwise l self.op r
-                else if sig l == "Value" && sig r == "Value" && isAttrs l && isAttrs r && elem self.op setwiseBinaryOps
+                else if sig l == "Attrs" && sig r == "Attrs" && elem self.op setwiseBinaryOps
                 then runBinaryOpSetwise l self.op r
                 else runBinaryOp l self.op r )));
     })));
@@ -1888,13 +1888,13 @@ rec {
         _02_attrParams = {
           _00_simple = testRoundTrip "({a}: a) {a = 42;}" 42;
           _01_multiple = testRoundTrip "({a, b}: a + b) {a = 1; b = 2;}" 3;
-          #_02_withDefaults = testRoundTrip "({a ? 1, b}: a + b) {b = 2;}" 3;
+          _02_withDefaults = testRoundTrip "({a ? 1, b}: a + b) {b = 2;}" 3;
           _03_ellipsis = testRoundTrip "({a, ...}: a) {a = 1; b = 2;}" 1;
-          #_04_defaultOverride = testRoundTrip "({a ? 1}: a) {a = 2;}" 2;
-          #_05_dependentFirstOverride = (testRoundTrip "({a ? 1, b ? a + 1}: a + b) {a = 2;}" 3);
-          #_06_dependentSecondOverride = (testRoundTrip "({a ? 1, b ? a + 1}: a + b) {b = 2;}" 3);
-          #_07_dependentTwoDefaults = (testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3);
-          #_08_mixedParams = testRoundTrip "({a, b ? 10}: a + b) {a = 5;}" 15;
+          _04_defaultOverride = testRoundTrip "({a ? 1}: a) {a = 2;}" 2;
+          _05_dependentFirstOverride = (testRoundTrip "({a ? 1, b ? a + 1}: a + b) {a = 2;}" 3);
+          _06_dependentSecondOverride = (testRoundTrip "({a ? 1, b ? a + 1}: a + b) {b = 2;}" 3);
+          _07_dependentTwoDefaults = (testRoundTrip "({a ? 1, b ? a + 1}: a + b) {}" 3);
+          _08_mixedParams = testRoundTrip "({a, b ? 10}: a + b) {a = 5;}" 15;
         };
 
         _03_evaluatedLambdas = {
