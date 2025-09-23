@@ -725,16 +725,6 @@ rec {
           else if op == "or" then _.do
             (while {_ = "evaluating 'or' BinOp";})
             {binOp = forceWith evalNodeM lhs;}
-                #forceWith 
-                #  (node: {_, ...}: _.do
-                #    {result = evalNodeM node;}
-                #    ({result, _}: _.do
-                #      (guard (isBinOp result) (RuntimeError ''
-                #        Expected {}._ on LHS of 'or' operation, got:
-                #          ${_ph_ result}
-                #      ''))
-                #      (if (result.getOp {}) != "." then result.run else pure result)))
-                #  lhs;})
             ({binOp, _, ...}: 
               (_.bind (evalAttributeAccess (binOp // { catchable = true; }))
               ).catch (e: {_, ...}: _.do
