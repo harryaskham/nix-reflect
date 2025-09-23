@@ -16,7 +16,7 @@ function maybe-bootstrap-cursor-agent() {
 function color() {
   IFS=''
   while read -r line ; do
-    (printf "$line\n" 1>&2) 2>&1
+    printf "$line\n"
   done
 }
 
@@ -26,6 +26,7 @@ function with-installable() {
   expr="$3"
   shift 3
   flags=()
+  flags+=(--option max-call-depth 1000000)
   if [[ "$CLTV_TRACE_LEVEL" != "0" ]]; then
     flags+=(--show-trace)
   fi
@@ -42,9 +43,9 @@ function eval-expr() {
   expr="$1"
   shift 1
   with-lib "$expr" --raw 2>&1 \
-    | sed "s/trace: start_trace(\(.\+\)): /\\\\e[90m[\\1] \\\\e[0m/" \
-    | sed '/warning.*dirty/d' \
-    | grep -v "^trace: end_trace$" \
+    | sed -u "s/trace: start_trace(\(.\+\)): /\\\\e[90m[\\1] \\\\e[0m/" \
+    | sed -u '/warning.*dirty/d' \
+    | grep --line-buffered -v "^trace: end_trace$" \
     | color
 }
 

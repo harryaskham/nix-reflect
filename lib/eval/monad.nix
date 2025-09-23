@@ -214,7 +214,7 @@ rec {
             # so that the ID is always present in in-use thunks.
             setThunkId = thunkId: mk (args // { inherit thunkId; });
 
-            # Should only be called by 
+            # Should only be called by __addBefore
             __setBefore = before: mk (args // { inherit before; });
 
             # Add to the before operation. If mode == newThunk, creates a new cached thunk, otherwise
@@ -1141,12 +1141,19 @@ rec {
                   Eval.throws: expected Either value ${Error} but got ${_p_ e} of type ${getT e}
                 ''));
 
+              loggingCatchHandler = this: handler: err:
+                (log.v 3).show ("\n" + (with ansi; box {
+                  header = style [fg.green bold] "Caught Evaluation Error";
+                  body = toString err;
+                  margin = zeros;
+                })) handler;
+
               # Catch specific error types and handle them with a recovery function
               # catch :: (EvalError -> Eval A) -> Eval A
               catch = this: handler:
                 if isLeft this.e && isCatchableError this.e.left then 
                   (set_e_Right this unit)
-                  .bind (handler this.e.left)
+                  .bind ((this.loggingCatchHandler handler this.e.left) this.e.left)
                 else this;
 
               # Returns (Either EvalError { a :: A, s :: S })
@@ -1343,7 +1350,10 @@ rec {
   expectEvalError = with tests; expectEvalErrorWith expect.noLambdasEq;
 
   expectEvalErrorWith = expectation: E: expr:
-    let result = eval.ast.runAST' expr;
+    let result = 
+      (log.v 1).show
+        (with ansi; "Expecting error: ${style [fg.red bold] (toString E)}")
+        (eval.ast.runAST' expr);
     in expectation (rec {
       resultIsLeft = isLeft result;
       resultEMatches = is E (result.left or null);
@@ -2073,6 +2083,11 @@ rec {
             _01_missingBindNotCatchable =
               expectRun {
                 actual = ((Eval.do ({a, _}: _.pure a)).catch (_e: pure "got ${_e}"));
+                expected = SyntaxError;
+              };
+            _02_missingParens = 
+              expectRun {
+                actual = Eval.do pure 1;
                 expected = SyntaxError;
               };
           };
