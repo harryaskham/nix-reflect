@@ -176,7 +176,8 @@ rec {
   isEvalError = x: x ? __isEvalError;
 
   # Handles forcing a thunk with current state cache and writing it back
-  force = x: {_, ...}:
+  force = forceWith eval.ast.forceEvalNodeM;
+  forceWith = f: x: {_, ...}:
     if !(isThunk x)
       then _.do
         (whileV 4 {_ = "not forcing a non-thunk of type ${lib.typeOf x}";})
@@ -185,7 +186,7 @@ rec {
         (whileV 4 {_ = "forcing #${x.thunkId} via thunk cache";})
         # Force thunks, persisting the value in the cache upon first force.
         {thunkCache = getThunkCache;}
-        ({thunkCache, _}: _.bind (thunkCache.forceThunk x));
+        ({thunkCache, _}: _.bind (thunkCache.forceThunkWith f x));
 
   isThunk = x: x ? __isThunk;
 
@@ -235,7 +236,7 @@ rec {
                   in mapFn (thunk: thunk.__setBefore before') self.thunkId));
 
             # Run the thunk with the given monadic state and extra scope.
-            runThunk = {_, ...}:
+            runThunkWith = f: {_, ...}:
               _.saveScope (_.do
                 (whileV 3 {_ = _b_ ''computing thunk #${thunkId}'';})
                 (setScope scope)
@@ -243,7 +244,8 @@ rec {
                   _.do
                     (whileV 3 {_ = "running 'before' action on #${thunkId}";})
                     (before)))
-                (eval.ast.forceEvalNodeM node));
+                (f node));
+            runThunk = {_, ...}: self.runThunkWith eval.ast.forceEvalNodeM;
           });
         in mk { thunkId = null; before = null; }));
 
@@ -353,7 +355,8 @@ rec {
         # Argument is just used as ID carrier.
         # TODO: ThunkCache could just hold nextId and values.
         # Uses the thunk from outside to respect forkBefore etc
-        forceThunk = thunk:
+        forceThunk = self.forceThunkWith eval.ast.forceEvalNodeM;
+        forceThunkWith = f: thunk:
           let thunkId = thunk.thunkId;
               thunkCache = this;
           in {_}: _.do
@@ -381,7 +384,7 @@ rec {
                 (while { _ = "ThunkCache miss for #${thunkId}"; })
                 # Run the thunk and get both value and updated cache
                 (whileV 5 {_ = "Calling runThunk to handle cache miss for #${thunkId}";})
-                {result = thunk.runThunk;}
+                {result = thunk.runThunkWith f;}
                 ({result, _}: _.do
                   # Get the updated cache from the state after evaluation since the thunk
                   # may have itself created/forced other thunks.
@@ -1345,6 +1348,7 @@ rec {
     unsafeAddBefore = collective-lib.tests.expect.anyLambda;
     setThunkId = collective-lib.tests.expect.anyLambda;
     runThunk = collective-lib.tests.expect.anyLambda;
+    runThunkWith = collective-lib.tests.expect.anyLambda;
   };
 
   expectEvalError = with tests; expectEvalErrorWith expect.noLambdasEq;

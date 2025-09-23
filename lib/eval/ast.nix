@@ -125,7 +125,7 @@ rec {
         EvalError = _.liftEither x;
         Eval = throw "toNixM: Eval value ${_ph_ x} cannot be converted to Nix";
         AST = _.do
-          {value = evalNodeM x;}
+          {value = forceEvalNodeM x;}
           ({value, _}: _.bind (toNixM value));
         Thunk = _.do
           {forced = force x;}
@@ -258,12 +258,6 @@ rec {
       (whileV 2 {_ = "evaluating AST node to WHNF: ${printBoxed node}";})
       {result = forceM (evalNodeM node);}
       ({result, _}: if isBinOp result then _.bind result.run else _.pure result);
-
-  forceEvalNodeMRunningBinOpsExcept = op: node: {_, ...}:
-    _.do
-      (whileV 2 {_ = "evaluating AST node to WHNF (running BinOps except ${op}): ${printBoxed node}";})
-      {result = forceM (evalNodeM node);}
-      ({result, _}: if isBinOp result && result.op != op then _.bind result.run else _.pure result);
 
   forceM = m: {_, ...}:
     _.do
@@ -720,8 +714,8 @@ rec {
           ''))))
         ({_, ...}:
           # No op should end up being run with lambda arguments
-          if op == "==" && isEvaluatedLambda lhs || isEvaluatedLambda rhs then _.pure false
-          else if op == "!=" && isEvaluatedLambda lhs || isEvaluatedLambda rhs then _.pure true
+          if op == "==" && lhs.nodeType == "lambda" || rhs.nodeType == "lambda" then _.pure false
+          else if op == "!=" && lhs.nodeType == "lambda" || rhs.nodeType == "lambda" then _.pure true
 
           # Because or takes precedence, this can only ever be a raw access without or, so this
           # shouldn't be catchable.
@@ -730,14 +724,23 @@ rec {
           # Only a catchable error returned directly from the attribute access chain can be caught
           else if op == "or" then _.do
             (while {_ = "evaluating 'or' BinOp";})
-            ({_, ...}: _.do
-              {binOp = forceEvalNodeMRunningBinOpsExcept "." lhs;}
-              ({binOp, _, ...}: 
-                (_.bind (evalAttributeAccess (binOp // { catchable = true; }))
-                ).catch (e: {_, ...}: _.do
-                  (while {_ = "Handling missing attribute in 'or' node";})
-                  (guard (CatchableMissingAttributeError.check e) e)
-                  (pure rhs))))
+            {binOp = forceWith evalNodeM lhs;}
+                #forceWith 
+                #  (node: {_, ...}: _.do
+                #    {result = evalNodeM node;}
+                #    ({result, _}: _.do
+                #      (guard (isBinOp result) (RuntimeError ''
+                #        Expected {}._ on LHS of 'or' operation, got:
+                #          ${_ph_ result}
+                #      ''))
+                #      (if (result.getOp {}) != "." then result.run else pure result)))
+                #  lhs;})
+            ({binOp, _, ...}: 
+              (_.bind (evalAttributeAccess (binOp // { catchable = true; }))
+              ).catch (e: {_, ...}: _.do
+                (while {_ = "Handling missing attribute in 'or' node";})
+                (guard (CatchableMissingAttributeError.check e) e)
+                (pure rhs)))
 
           else if op == "&&" || op == "||" then _.do
             (while {_ = "evaluating possibly short-circuiting boolean binary operation";})
@@ -1779,7 +1782,7 @@ rec {
           dependent = testRoundTrip "let x = 1; y = let z = x + 1; in z * 2; in y" 4;
           independent = testRoundTrip "let x = (let y = 1; in y); z = (let w = 2; in w); in x + z" 3;
         };
-        recursive = solo {
+        recursive = {
           _00_simple = testRoundTrip "let x = y; y = 1; in x" 1;
           _01_mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
           _02_complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
