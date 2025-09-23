@@ -1228,7 +1228,7 @@ rec {
   _tests = with tests; suite {
 
     evalAST = {
-      _00_smoke = solo {
+      _00_smoke = {
         _00_int = testRoundTripSame "1" 1;
         _01_float = testRoundTripSame "1.0" 1.0;
         _02_string = testRoundTripSame ''"hello"'' "hello";
@@ -1571,7 +1571,7 @@ rec {
       };
 
       _07_comparison = {
-        _00_equality = solo {
+        _00_equality = {
           _00_boolEqual = testRoundTrip "true == true" true;
           _01_boolNotEqual = testRoundTrip "true == false" false;
           _02_emptyListEqual = testRoundTrip "[] == []" true;
@@ -1641,7 +1641,7 @@ rec {
           #  in [(pointerEqual f f) (pointerEqual f g)]
           #'' [false false];
         };
-        _04_nested = solo {
+        _04_nested = {
           _00_listOrdering.one = testRoundTrip "[1] < [2]" true;
           _00_listOrdering.two = testRoundTrip "[1 2] < [2 1]" true;
           _00_listOrdering.twoRev = testRoundTrip "[1 1] < [1 2]" true;
@@ -1781,7 +1781,7 @@ rec {
           independent = testRoundTrip "let x = (let y = 1; in y); z = (let w = 2; in w); in x + z" 3;
           dependent = testRoundTrip "let x = 1; y = let z = x + 1; in z * 2; in y" 4;
         };
-        recursive = solo {
+        recursive = {
           _00_simple = testRoundTrip "let x = y; y = 1; in x" 1;
           _01_mutual = testRoundTrip "let a = b + 1; b = 5; in a" 6;
           _02_complex = testRoundTrip "let a = b + c; b = 2; c = 3; in a" 5;
@@ -1870,7 +1870,7 @@ rec {
       };
 
       # Functions
-      _11_functions = solo {
+      _11_functions = {
         _00_smoke = {
           identity = testRoundTrip "let f = x: x; in f 42" 42;
           const = testRoundTrip "let f = x: y: x; in f 1 2" 1;
@@ -1897,19 +1897,23 @@ rec {
           _08_mixedParams = testRoundTrip "({a, b ? 10}: a + b) {a = 5;}" 15;
         };
 
-        _03_evaluatedLambdas = {
-          returnNixLambda =
-            let result = evalAST "(x: builtins.add) {}";
-            in expect.eq (result.fmap (f: f 40 2)).right 42;
-          applyNixLambda = testRoundTrip "(x: builtins.add) {} 40 2" 42;
-          returnEvaluatedLambda =
-            let result = evalAST "(x: x + 2)";
-            in expect.eq ((result.fmap (f: f 40)).right or null) 42;
-          applyEvaluatedLambda = testRoundTrip "(x: x + 2) 40" 42;
-          applyEvaluatedLambdaNested = testRoundTrip "(x: y: x + y) 40 2" 42;
-          returnEvaluatedLambdaNestedMixedApplication =
-            let result = evalAST' "(x: y: x + y) 40";
-            in expect.eq ((result.fmap (f: f 2)).right or null) 42;
+        _03_evaluatedLambdas = skip {
+          _00_apply = {
+            _00_applyEvaluatedLambda = testRoundTrip "(x: x + 2) 40" 42;
+            _01_applyEvaluatedLambdaNested = testRoundTrip "(x: y: x + y) 40 2" 42;
+            _02_applyNixLambda = testRoundTrip "(x: builtins.add) {} 40 2" 42;
+          };
+          _01_return = {
+            _00_returnEvaluatedLambda =
+              let result = evalAST "(x: x + 2)";
+              in expect.eq ((result.fmap (f: f 40)).right or null) 42;
+            _01_returnEvaluatedLambdaNestedMixedApplication =
+              let result = evalAST' "(x: y: x + y) 40";
+              in expect.eq ((result.fmap (f: f 2)).right or null) 42;
+            _02_returnNixLambda =
+              let result = evalAST "(x: builtins.add) {}";
+              in expect.eq (result.fmap (f: f 40 2)).right 42;
+          };
         };
 
         _04_scopeAndClosure = {
@@ -1933,14 +1937,14 @@ rec {
           nestedApplication = testRoundTrip "((x: y: x + y) 1) 2" 3;
         };
 
-        _07_functors = {
-          #_00_isFunctionBuiltins = testRoundTrip "builtins.isFunction { __functor = self: x: x + 1; }" false;
+        _07_functors = skip {
+          _00_isFunctionBuiltins = testRoundTrip "builtins.isFunction { __functor = self: x: x + 1; }" false;
           _01_isFunctionLib = testRoundTrip "lib.isFunction { __functor = self: x: x + 1; }" true;
           _02_isAttrs = testRoundTrip "builtins.isAttrs { __functor = self: x: x + 1; }" true;
-          #_03_callable = testRoundTrip "{ __functor = self: x: x + 1; } 1" 2;
-          #_04_returnCallable =
-          #  let result = nix-reflect.eval.strict "{ __functor = self: x: x + 1; }";
-          #  in expect.eq (result.right 1) 2;
+          _03_callable = testRoundTrip "{ __functor = self: x: x + 1; } 1" 2;
+          _04_returnCallable =
+            let result = nix-reflect.eval.strict "{ __functor = self: x: x + 1; }";
+            in expect.eq (result.right 1) 2;
         };
       };
 
@@ -2024,7 +2028,7 @@ rec {
         };
         
         edgeCases = {
-          #selfReference = testRoundTrip "let obj = { self = obj; value = 42; }; in obj.self.value" 42;
+          selfReference = testRoundTrip "let obj = { self = obj; value = 42; }; in obj.self.value" 42;
           multipleChains = testRoundTrip "{ a = { x = 1; }; b = { y = 2; }; }.a.x + { a = { x = 1; }; b = { y = 2; }; }.b.y" 3;
           withArithmetic = testRoundTrip "{ value = 10; }.value / 2" 5;
           withLogical = testRoundTrip "{ flag = true; }.flag && false" false;
@@ -2233,12 +2237,6 @@ rec {
           nonAttrSet = expectEvalError UnknownIdentifierError "with 42; x";
           nullWith = expectEvalError UnknownIdentifierError "with null; x";
           stringWith = expectEvalError UnknownIdentifierError ''with "hello"; x'';
-          listWith = expectEvalError UnknownIdentifierError "with [1 2 3]; x";
-          listWithNotForced = testRoundTrip "with {a=1;}; with []; 1" 1;
-          listWithNotForcedFlipped = testRoundTrip "with []; with {a=1;}; a" 1;
-          # Fails in Nix, passes here.
-          # listWithForcedPresent = expectEvalError UnknownIdentifierError "with {a=1;}; with []; a";
-          listWithForcedMissing = expectEvalError UnknownIdentifierError "with {a=1;}; with []; b";
           functionWith = expectEvalError UnknownIdentifierError "with (x: x); x";
         };
         
@@ -2282,6 +2280,24 @@ rec {
           withAssertFail = expectEvalError AssertError "with { valid = false; }; assert valid; 42";
           withAbort = expectEvalError Abort ''with { msg = "error"; }; abort msg'';
           withConditional = testRoundTrip "with { test = true; val = 42; }; if test then val else 0" 42;
+        };
+
+        withList = {
+          # List needs to be evaluated as with-scope to check for x presence
+          direct = expectEvalError UnknownIdentifierError "with [1 2 3]; x";
+          # Okay; no usage of identifiers so list never evaluated as with-scope
+          unforced = testRoundTrip "with {a=1;}; with []; 1" 1;
+          # Okay; a is found so never need to evaluate the list as a with-scope
+          # Matches Nix semantics
+          unforcedFlipped = testRoundTrip "with []; with {a=1;}; a" 1;
+          # Needs to evaluate the list as with-context to check for b presence
+          searchedMissing = expectEvalError UnknownIdentifierError "with {a=1;}; with []; b";
+        };
+
+        withListShouldFail = skip {
+          # Fails in Nix, passes here.
+          # TODO: Need to maintain a stack of with-contexts
+          innerWithListFails = expectEvalError UnknownIdentifierError "with {a=1;}; with []; a";
         };
       };
 

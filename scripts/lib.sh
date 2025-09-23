@@ -48,6 +48,13 @@ function eval-expr() {
     | color
 }
 
+function fast-mode () {
+  export CLTV_TRACE_LEVEL=0
+  export CLTV_PRETTY=0
+  export CLTV_ENABLE_STRING_DIFF=0
+  exec "$@"
+}
+
 function run-tests() {
   if [[ -z "$1" ]]; then
     eval-expr "lib._tests.run {}"
