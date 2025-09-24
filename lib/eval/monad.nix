@@ -355,7 +355,7 @@ rec {
         # Argument is just used as ID carrier.
         # TODO: ThunkCache could just hold nextId and values.
         # Uses the thunk from outside to respect forkBefore etc
-        forceThunk = self.forceThunkWith eval.ast.forceEvalNodeM;
+        forceThunk = this.forceThunkWith eval.ast.forceEvalNodeM;
         forceThunkWith = f: thunk:
           let thunkId = thunk.thunkId;
               thunkCache = this;
