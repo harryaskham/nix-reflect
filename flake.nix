@@ -13,14 +13,14 @@
     nix-parsec.url = "github:nprindle/nix-parsec";
   };
 
-  outputs = { self, nixpkgs, flake-utils, collective-public, nix-parsec, ... } @ inputs:
+  outputs = { nixpkgs, flake-utils, ... } @ inputs:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         reflectLib = import ./lib { inherit inputs pkgs; };
       in {
         lib = reflectLib;
-        devShells = rec {
+        devShells = {
           default = pkgs.mkShell (rec {
             buildInputs = with pkgs; [ direnv ];
           });
