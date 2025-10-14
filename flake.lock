@@ -16,7 +16,6 @@
         "owner": "harryaskham",
         "repo": "collective-public",
         "rev": "168baea39b6f7ed17fc990a423d530ad8e6848a8",
-        "submodules": true,
         "type": "github"
       },
       "original": {
