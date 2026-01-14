@@ -11,12 +11,12 @@
         "nixpkgs-stable": "nixpkgs-stable"
       },
       "locked": {
-        "lastModified": 1760435627,
-        "narHash": "sha256-Pp9R1wh8wvloCLyvvsnxhDtJ+jabRYIQnFq0qtc01n8=",
+        "lastModified": 1767964059,
+        "narHash": "sha256-sCFBsA8+7t7UGpGpKJk8TeAkhnMGLY3O7Ob8xJ4kCHY=",
         "ref": "refs/heads/main",
-        "rev": "e982bf3a0c21141bb017091a9ceb8009523c6767",
-        "revCount": 804,
-        "submodules": true,
+        "rev": "5f020c246093c0fd503ae4c110ebf02726a42f05",
+        "revCount": 868,
+        "submodules": false,
         "type": "git",
         "url": "https://github.com/harryaskham/collective-public"
       },
