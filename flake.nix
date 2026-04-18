@@ -5,7 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:nixos/nixpkgs/release-25.05";
     collective-public = {
-      url = "git+https://git@github.com/harryaskham/collective-public.git?submodules=false";
+      url = "github:harryaskham/nix-reflect";
       inputs.nix-reflect.follows = "";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.nixpkgs-stable.follows = "nixpkgs-stable";
