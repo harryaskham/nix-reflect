@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     collective-public = {
-      url = "git+ssh:git@github.com:harryaskham/collective-public.git";
+      url = "github:harryaskham/collective-public";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-utils.url = "github:numtide/flake-utils";
