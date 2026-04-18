@@ -3,12 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    nixpkgs-stable.url = "github:nixos/nixpkgs/release-25.05";
     collective-public = {
-      url = "git+ssh://git@github.com:harryaskham/nix-reflect.git";
+      url = "git+ssh://git@github.com:harryaskham/collective-public.git";
       inputs.nix-reflect.follows = "";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.nixpkgs-stable.follows = "nixpkgs-stable";
     };
     flake-utils.url = "github:numtide/flake-utils";
     nix-parsec.url = "github:nprindle/nix-parsec";
