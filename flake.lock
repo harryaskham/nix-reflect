@@ -8,22 +8,23 @@
         "nixpkgs": [
           "nixpkgs"
         ],
-        "nixpkgs-stable": "nixpkgs-stable"
+        "nixpkgs-stable": [
+          "nixpkgs-stable"
+        ]
       },
       "locked": {
         "lastModified": 1776517386,
         "narHash": "sha256-NB79KkqRJlUGmTowlt0nXgPdjuakzsrptGb1z+4GB1k=",
-        "ref": "refs/heads/main",
+        "owner": "harryaskham",
+        "repo": "collective-public",
         "rev": "77db87ec38a4efe8079ba54186431ba51abeb567",
-        "revCount": 933,
         "submodules": true,
-        "type": "git",
-        "url": "https://github.com/harryaskham/collective-public"
+        "type": "github"
       },
       "original": {
-        "submodules": false,
-        "type": "git",
-        "url": "https://github.com/harryaskham/collective-public"
+        "owner": "harryaskham",
+        "repo": "collective-public",
+        "type": "github"
       }
     },
     "flake-utils": {
@@ -109,11 +110,11 @@
     },
     "nixpkgs-stable": {
       "locked": {
-        "lastModified": 1760434246,
-        "narHash": "sha256-OpKCaaaN5VYJadbrM5Yv+AZK/FMwygkwbWxUxNNLmpg=",
+        "lastModified": 1768649915,
+        "narHash": "sha256-jc21hKogFnxU7KXSVTRmxC7u5D4RHwm9BAvDf5/Z1Uo=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "f046bdaae96a706bbcc96084028cfc5412e3320f",
+        "rev": "3e3f3c7f9977dc123c23ee21e8085ed63daf8c37",
         "type": "github"
       },
       "original": {
@@ -128,7 +129,8 @@
         "collective-public": "collective-public",
         "flake-utils": "flake-utils_2",
         "nix-parsec": "nix-parsec_2",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "nixpkgs-stable": "nixpkgs-stable"
       }
     },
     "systems": {

@@ -2,13 +2,14 @@
   description = "Nix library for parsing, evaluating and reflecting on Nix code, written in pure Nix";
 
   inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/release-25.05";
     collective-public = {
-      url = "git+https://github.com/harryaskham/collective-public?submodules=false";
+      url = "git+https://git@github.com/harryaskham/collective-public.git?submodules=false";
       inputs.nix-reflect.follows = "";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs-stable.follows = "nixpkgs-stable";
     };
-
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     nix-parsec.url = "github:nprindle/nix-parsec";
   };
