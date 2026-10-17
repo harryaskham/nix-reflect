@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>nix-reflect · a Nix parser and evaluator written in Nix</title>
+<meta name="description" content="nix-reflect is a Nix library that parses Nix source into an inspectable tree and evaluates that tree to a value, with scopes, lazy thunks and typed errors implemented in Nix itself. How it works, and how much of the language it handles today, measured against the real evaluator.">
+<meta name="theme-color" content="#f6f3ea">
+<meta name="color-scheme" content="light">
+<meta name="a.skh.am:group" content="libraries">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/fonts/fonts.css">
+<link rel="stylesheet" href="assets/base.css">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+<nav class="topbar" aria-label="Site">
+  <a href="https://a.skh.am/all/">a.skh.am/all</a><span aria-hidden="true">/</span><span>nix-reflect</span>
+  <a class="src" href="https://github.com/harryaskham/nix-reflect">Source on GitHub</a>
+</nav>
+
+<main id="main">
+<header class="intro">
+  <h1>nix-reflect</h1>
+  <p class="lede">A parser and an evaluator for the Nix language, written in Nix. <code>parser.parse</code> turns a string of Nix into a tree of attribute sets that you can inspect and rewrite, and <code>eval</code> reduces that tree to a value, with scopes, lazy thunks and typed errors implemented in Nix itself.</p>
+  <p>Because the whole thing is ordinary Nix code, it runs wherever <code>nix eval</code> does, and a Nix program can use it to read, transform and run Nix source as data. It is a work in progress: the <a href="#status">last section</a> measures how much of the language it handles today.</p>
+</header>
+
+<section class="part" aria-labelledby="h-example">
+  <p class="api">parser.parse · eval</p>
+  <h2 id="h-example">One expression, its tree and its value</h2>
+  <pre tabindex="0"><code><span class="k">parser.parse</span> "let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y"</code></pre>
+  <figure>
+    <div class="fig" tabindex="0">
+      <!-- fig:tree -->
+<svg class="dg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 874 544" width="874" height="544" role="img" aria-labelledby="tree-t tree-d">
+<title id="tree-t">The parse tree of one expression</title>
+<desc id="tree-d">The tree that parser.parse returns for: let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y. The root is a let-in node whose binding assigns a recursive attribute set to a, with x bound to 1 + 1 and y to x + 1; its body adds a.x and a.y, each an attribute selection. Every node is labelled the way the library prints it and, where it has children, carries the exact slice of source text it was parsed from. Edges are labelled with the field that holds the child, such as lhs, rhs, body or bindings[0].</desc>
+<defs><marker id="tree-tip-muted" class="k-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="tip" d="M0 1L10 5L0 9z"/></marker></defs>
+<g class="k-muted"><path class="edge" d="M458.5 68.0 L458.5 82.0 Q458.5 90.0 450.5 90.0 L173.5 90.0 Q166.5 90.0 166.5 97.0 L166.5 104.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M166.5 160.0 L166.5 174.0 Q166.5 182.0 158.5 182.0 L59.0 182.0 Q51.0 182.0 51.0 190.0 L51.0 204.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M166.5 160.0 L166.5 174.0 Q166.5 182.0 174.5 182.0 L275.0 182.0 Q282.0 182.0 282.0 189.0 L282.0 196.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M282.0 252.0 L282.0 266.0 Q282.0 274.0 274.0 274.0 L173.5 274.0 Q166.5 274.0 166.5 281.0 L166.5 288.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M166.5 344.0 L166.5 358.0 Q166.5 366.0 158.5 366.0 L125.0 366.0 Q117.0 366.0 117.0 374.0 L117.0 388.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M166.5 344.0 L166.5 358.0 Q166.5 366.0 174.5 366.0 L209.0 366.0 Q216.0 366.0 216.0 373.0 L216.0 380.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M216.0 436.0 L216.0 450.0 Q216.0 458.0 208.0 458.0 L191.0 458.0 Q183.0 458.0 183.0 466.0 L183.0 480.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M216.0 436.0 L216.0 450.0 Q216.0 458.0 224.0 458.0 L241.0 458.0 Q249.0 458.0 249.0 466.0 L249.0 480.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M282.0 252.0 L282.0 266.0 Q282.0 274.0 290.0 274.0 L357.5 274.0 Q364.5 274.0 364.5 281.0 L364.5 288.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M364.5 344.0 L364.5 358.0 Q364.5 366.0 356.5 366.0 L323.0 366.0 Q315.0 366.0 315.0 374.0 L315.0 388.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M364.5 344.0 L364.5 358.0 Q364.5 366.0 372.5 366.0 L407.0 366.0 Q414.0 366.0 414.0 373.0 L414.0 380.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M414.0 436.0 L414.0 450.0 Q414.0 458.0 406.0 458.0 L389.0 458.0 Q381.0 458.0 381.0 466.0 L381.0 480.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M414.0 436.0 L414.0 450.0 Q414.0 458.0 422.0 458.0 L439.0 458.0 Q447.0 458.0 447.0 466.0 L447.0 480.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M458.5 68.0 L458.5 82.0 Q458.5 90.0 466.5 90.0 L661.0 90.0 Q668.0 90.0 668.0 97.0 L668.0 104.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M668.0 160.0 L668.0 174.0 Q668.0 182.0 660.0 182.0 L567.0 182.0 Q560.0 182.0 560.0 189.0 L560.0 196.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M560.0 252.0 L560.0 266.0 Q560.0 274.0 552.0 274.0 L521.0 274.0 Q513.0 274.0 513.0 282.0 L513.0 296.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M560.0 252.0 L560.0 266.0 Q560.0 274.0 568.0 274.0 L600.0 274.0 Q607.0 274.0 607.0 281.0 L607.0 288.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M607.0 344.0 L607.0 388.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M668.0 160.0 L668.0 174.0 Q668.0 182.0 676.0 182.0 L741.0 182.0 Q748.0 182.0 748.0 189.0 L748.0 196.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M748.0 252.0 L748.0 266.0 Q748.0 274.0 740.0 274.0 L709.0 274.0 Q701.0 274.0 701.0 282.0 L701.0 296.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M748.0 252.0 L748.0 266.0 Q748.0 274.0 756.0 274.0 L788.0 274.0 Q795.0 274.0 795.0 281.0 L795.0 288.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-muted"><path class="edge" d="M795.0 344.0 L795.0 388.0" stroke-width="1.5" marker-end="url(#tree-tip-muted)"/></g>
+<g class="k-accent"><rect class="shadow" x="314.9" y="16.0" width="295.3" height="56.0"/><rect class="node" x="310.9" y="12.0" width="295.3" height="56.0" rx="1.5"/><text x="458.5" y="37.0" font-size="15" text-anchor="middle" class="lbl m">let _ in _</text><text x="458.5" y="54.0" font-size="12.5" text-anchor="middle" class="sub">let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y</text></g>
+<g class="k-b"><rect class="shadow" x="67.2" y="108.0" width="206.5" height="56.0"/><rect class="node" x="63.2" y="104.0" width="206.5" height="56.0" rx="1.5"/><text x="166.5" y="129.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ = _&gt;</text><text x="166.5" y="146.0" font-size="12.5" text-anchor="middle" class="sub">a = rec { x = 1 + 1; y = x + 1; };</text></g>
+<g class="k-ink"><rect class="shadow" x="28.0" y="208.0" width="54.0" height="40.0"/><rect class="node" x="24.0" y="204.0" width="54.0" height="40.0" rx="1.5"/><text x="51.0" y="229.0" font-size="15" text-anchor="middle" class="lbl m">`a`</text></g>
+<g class="k-b"><rect class="shadow" x="195.2" y="200.0" width="181.5" height="56.0"/><rect class="node" x="191.2" y="196.0" width="181.5" height="56.0" rx="1.5"/><text x="282.0" y="221.0" font-size="15" text-anchor="middle" class="lbl m">rec {_}</text><text x="282.0" y="238.0" font-size="12.5" text-anchor="middle" class="sub">rec { x = 1 + 1; y = x + 1; }</text></g>
+<g class="k-b"><rect class="shadow" x="115.5" y="292.0" width="110.0" height="56.0"/><rect class="node" x="111.5" y="288.0" width="110.0" height="56.0" rx="1.5"/><text x="166.5" y="313.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ = _&gt;</text><text x="166.5" y="330.0" font-size="12.5" text-anchor="middle" class="sub">x = 1 + 1;</text></g>
+<g class="k-ink"><rect class="shadow" x="94.0" y="392.0" width="54.0" height="40.0"/><rect class="node" x="90.0" y="388.0" width="54.0" height="40.0" rx="1.5"/><text x="117.0" y="413.0" font-size="15" text-anchor="middle" class="lbl m">`x`</text></g>
+<g class="k-c"><rect class="shadow" x="165.0" y="384.0" width="110.0" height="56.0"/><rect class="node" x="161.0" y="380.0" width="110.0" height="56.0" rx="1.5"/><text x="216.0" y="405.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ + _&gt;</text><text x="216.0" y="422.0" font-size="12.5" text-anchor="middle" class="sub">1 + 1</text></g>
+<g class="k-a"><rect class="shadow" x="160.0" y="484.0" width="54.0" height="40.0"/><rect class="node" x="156.0" y="480.0" width="54.0" height="40.0" rx="1.5"/><text x="183.0" y="505.0" font-size="15" text-anchor="middle" class="lbl m">ℤ 1</text></g>
+<g class="k-a"><rect class="shadow" x="226.0" y="484.0" width="54.0" height="40.0"/><rect class="node" x="222.0" y="480.0" width="54.0" height="40.0" rx="1.5"/><text x="249.0" y="505.0" font-size="15" text-anchor="middle" class="lbl m">ℤ 1</text></g>
+<g class="k-b"><rect class="shadow" x="313.5" y="292.0" width="110.0" height="56.0"/><rect class="node" x="309.5" y="288.0" width="110.0" height="56.0" rx="1.5"/><text x="364.5" y="313.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ = _&gt;</text><text x="364.5" y="330.0" font-size="12.5" text-anchor="middle" class="sub">y = x + 1;</text></g>
+<g class="k-ink"><rect class="shadow" x="292.0" y="392.0" width="54.0" height="40.0"/><rect class="node" x="288.0" y="388.0" width="54.0" height="40.0" rx="1.5"/><text x="315.0" y="413.0" font-size="15" text-anchor="middle" class="lbl m">`y`</text></g>
+<g class="k-c"><rect class="shadow" x="363.0" y="384.0" width="110.0" height="56.0"/><rect class="node" x="359.0" y="380.0" width="110.0" height="56.0" rx="1.5"/><text x="414.0" y="405.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ + _&gt;</text><text x="414.0" y="422.0" font-size="12.5" text-anchor="middle" class="sub">x + 1</text></g>
+<g class="k-ink"><rect class="shadow" x="358.0" y="484.0" width="54.0" height="40.0"/><rect class="node" x="354.0" y="480.0" width="54.0" height="40.0" rx="1.5"/><text x="381.0" y="505.0" font-size="15" text-anchor="middle" class="lbl m">`x`</text></g>
+<g class="k-a"><rect class="shadow" x="424.0" y="484.0" width="54.0" height="40.0"/><rect class="node" x="420.0" y="480.0" width="54.0" height="40.0" rx="1.5"/><text x="447.0" y="505.0" font-size="15" text-anchor="middle" class="lbl m">ℤ 1</text></g>
+<g class="k-c"><rect class="shadow" x="617.0" y="108.0" width="110.0" height="56.0"/><rect class="node" x="613.0" y="104.0" width="110.0" height="56.0" rx="1.5"/><text x="668.0" y="129.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ + _&gt;</text><text x="668.0" y="146.0" font-size="12.5" text-anchor="middle" class="sub">a.x + a.y</text></g>
+<g class="k-c"><rect class="shadow" x="509.0" y="200.0" width="110.0" height="56.0"/><rect class="node" x="505.0" y="196.0" width="110.0" height="56.0" rx="1.5"/><text x="560.0" y="221.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ . _&gt;</text><text x="560.0" y="238.0" font-size="12.5" text-anchor="middle" class="sub">a.x</text></g>
+<g class="k-ink"><rect class="shadow" x="490.0" y="300.0" width="54.0" height="40.0"/><rect class="node" x="486.0" y="296.0" width="54.0" height="40.0" rx="1.5"/><text x="513.0" y="321.0" font-size="15" text-anchor="middle" class="lbl m">`a`</text></g>
+<g class="k-muted"><rect class="shadow" x="556.0" y="292.0" width="110.0" height="56.0"/><rect class="node" x="552.0" y="288.0" width="110.0" height="56.0" rx="1.5"/><text x="607.0" y="313.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_._._&gt;</text><text x="607.0" y="330.0" font-size="12.5" text-anchor="middle" class="sub">x</text></g>
+<g class="k-ink"><rect class="shadow" x="584.0" y="392.0" width="54.0" height="40.0"/><rect class="node" x="580.0" y="388.0" width="54.0" height="40.0" rx="1.5"/><text x="607.0" y="413.0" font-size="15" text-anchor="middle" class="lbl m">`x`</text></g>
+<g class="k-c"><rect class="shadow" x="697.0" y="200.0" width="110.0" height="56.0"/><rect class="node" x="693.0" y="196.0" width="110.0" height="56.0" rx="1.5"/><text x="748.0" y="221.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_ . _&gt;</text><text x="748.0" y="238.0" font-size="12.5" text-anchor="middle" class="sub">a.y</text></g>
+<g class="k-ink"><rect class="shadow" x="678.0" y="300.0" width="54.0" height="40.0"/><rect class="node" x="674.0" y="296.0" width="54.0" height="40.0" rx="1.5"/><text x="701.0" y="321.0" font-size="15" text-anchor="middle" class="lbl m">`a`</text></g>
+<g class="k-muted"><rect class="shadow" x="744.0" y="292.0" width="110.0" height="56.0"/><rect class="node" x="740.0" y="288.0" width="110.0" height="56.0" rx="1.5"/><text x="795.0" y="313.0" font-size="15" text-anchor="middle" class="lbl m">&lt;_._._&gt;</text><text x="795.0" y="330.0" font-size="12.5" text-anchor="middle" class="sub">y</text></g>
+<g class="k-ink"><rect class="shadow" x="772.0" y="392.0" width="54.0" height="40.0"/><rect class="node" x="768.0" y="388.0" width="54.0" height="40.0" rx="1.5"/><text x="795.0" y="413.0" font-size="15" text-anchor="middle" class="lbl m">`y`</text></g>
+<g class="k-muted"><rect class="lab-bg" x="179.1" y="80.0" width="91.2" height="20.0"/><text x="224.7" y="94.0" font-size="12" text-anchor="middle" class="elabel m">bindings[0]</text></g>
+<g class="k-muted"><rect class="lab-bg" x="47.3" y="172.0" width="33.6" height="20.0"/><text x="64.1" y="186.0" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="245.9" y="172.0" width="33.6" height="20.0"/><text x="262.7" y="186.0" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="140.2" y="264.0" width="91.2" height="20.0"/><text x="185.8" y="278.0" font-size="12" text-anchor="middle" class="elabel m">bindings[0]</text></g>
+<g class="k-muted"><rect class="lab-bg" x="100.2" y="357.4" width="33.6" height="20.0"/><text x="117.0" y="371.4" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="194.4" y="356.0" width="33.6" height="20.0"/><text x="211.2" y="370.0" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="166.2" y="453.1" width="33.6" height="20.0"/><text x="183.0" y="467.1" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="232.2" y="453.1" width="33.6" height="20.0"/><text x="249.0" y="467.1" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="306.8" y="264.0" width="91.2" height="20.0"/><text x="352.4" y="278.0" font-size="12" text-anchor="middle" class="elabel m">bindings[1]</text></g>
+<g class="k-muted"><rect class="lab-bg" x="298.2" y="357.4" width="33.6" height="20.0"/><text x="315.0" y="371.4" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="392.4" y="356.0" width="33.6" height="20.0"/><text x="409.2" y="370.0" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="364.2" y="453.1" width="33.6" height="20.0"/><text x="381.0" y="467.1" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="430.2" y="453.1" width="33.6" height="20.0"/><text x="447.0" y="467.1" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="607.6" y="80.0" width="40.8" height="20.0"/><text x="628.0" y="94.0" font-size="12" text-anchor="middle" class="elabel m">body</text></g>
+<g class="k-muted"><rect class="lab-bg" x="560.9" y="172.0" width="33.6" height="20.0"/><text x="577.7" y="186.0" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="496.2" y="266.0" width="33.6" height="20.0"/><text x="513.0" y="280.0" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="585.9" y="264.0" width="33.6" height="20.0"/><text x="602.7" y="278.0" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="575.8" y="368.3" width="62.4" height="20.0"/><text x="607.0" y="382.3" font-size="12" text-anchor="middle" class="elabel m">path[0]</text></g>
+<g class="k-muted"><rect class="lab-bg" x="719.7" y="172.0" width="33.6" height="20.0"/><text x="736.5" y="186.0" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="684.2" y="266.0" width="33.6" height="20.0"/><text x="701.0" y="280.0" font-size="12" text-anchor="middle" class="elabel m">lhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="773.9" y="264.0" width="33.6" height="20.0"/><text x="790.7" y="278.0" font-size="12" text-anchor="middle" class="elabel m">rhs</text></g>
+<g class="k-muted"><rect class="lab-bg" x="763.8" y="368.3" width="62.4" height="20.0"/><text x="795.0" y="382.3" font-size="12" text-anchor="middle" class="elabel m">path[0]</text></g>
+</svg>
+<!-- /fig -->
+    </div>
+    <figcaption><b>The tree as the parser returns it.</b> Node labels are the library's own; under each inner node is the exact source it was parsed from. Edges name the field that holds the child.</figcaption>
+  </figure>
+  <pre tabindex="0"><code><span class="k">eval</span> "let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y"</code></pre>
+  <!-- gen:out-value -->
+<pre class="result" tabindex="0" aria-label="Result"><code>5</code></pre>
+<!-- /gen -->
+</section>
+
+<section class="part" aria-labelledby="h-parse">
+  <p class="api">parser.parse :: string → AST</p>
+  <h2 id="h-parse">Parsing</h2>
+  <div class="cols">
+    <div>
+      <p>The parser is built from <a href="https://github.com/nprindle/nix-parsec">nix-parsec</a>, a parser-combinator library written in Nix. There is one small parser per construct (integers, strings, paths, lists, attribute sets, lambdas, <code>let</code>, <code>with</code> and so on), alternatives are tried with <code>choice</code>, and binary operators are layered by precedence from <code>*</code> and <code>/</code> down to <code>||</code>, so <code>1 + 2 * 3</code> groups the way Nix groups it.</p>
+      <p>Every parser is wrapped so that the node it produces records the offset and the text it matched. Parsing <code class="nw">"  1   +   2"</code> gives a <code>binaryOp</code> node whose source is:</p>
+      <!-- gen:out-src -->
+<pre class="result" tabindex="0" aria-label="Result"><code>&quot;1   +   2&quot;</code></pre>
+<!-- /gen -->
+    </div>
+    <div>
+      <p>A node is an attribute set: a <code>nodeType</code>, its fields (<code>lhs</code>, <code>op</code>, <code>rhs</code>; <code>bindings</code> and <code>body</code>; <code>param</code>; …), the source text in <code>__src</code>, and <code>mapNode</code> and <code>fmap</code> for producing changed copies. Nothing is hidden behind a function, so a tree can be printed, compared, walked or rebuilt with ordinary Nix. <code>true</code>, <code>false</code> and <code>null</code> are not literals: they parse as identifiers and are looked up in scope, as in Nix.</p>
+      <div class="table-wrap">
+      <table class="types">
+        <caption>Node types the parser produces</caption>
+        <tbody>
+          <tr><th scope="row">literals</th><td><code>int</code> <code>float</code> <code>string</code> <code>stringPieces</code> <code>interpolation</code> <code>path</code> <code>anglePath</code></td></tr>
+          <tr><th scope="row">names</th><td><code>identifier</code> <code>attrPath</code></td></tr>
+          <tr><th scope="row">data</th><td><code>list</code> <code>attrs</code> <code>assignment</code> <code>inherit</code></td></tr>
+          <tr><th scope="row">functions</th><td><code>lambda</code> <code>simpleParam</code> <code>attrSetParam</code> <code>defaultParam</code> <code>application</code></td></tr>
+          <tr><th scope="row">control</th><td><code>letIn</code> <code>conditional</code> <code>with</code> <code>assert</code> <code>throw</code> <code>abort</code></td></tr>
+          <tr><th scope="row">operators</th><td><code>unaryOp</code> <code>binaryOp</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="h-eval">
+  <p class="api">eval :: string | AST → value</p>
+  <h2 id="h-eval">Evaluating</h2>
+  <p>The evaluator walks the tree with one function per node type (<code>evalLetIn</code>, <code>evalWith</code>, <code>evalLambda</code>, <code>evalApplication</code>, …). Each returns a computation in an evaluation monad that the library defines for itself, in its own words "roughly an <code>ExceptT EvalError (StateT EvalState m)</code> stack": a step can read and update the evaluation state, or stop with an error, and the plumbing between steps is written once. The library also implements a <code>do</code> notation for these computations, so evaluation functions read as a sequence of named steps rather than nested callbacks.</p>
+  <figure>
+    <div class="fig" tabindex="0">
+      <!-- fig:evaluator -->
+<svg class="dg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 950 330" width="950" height="330" role="img" aria-labelledby="evaluator-t evaluator-d">
+<title id="evaluator-t">From text to a value</title>
+<desc id="evaluator-d">How eval works. Source text is parsed by parser combinators into an AST of attribute sets. evalM walks the AST, dispatching on each node&#x27;s type, inside an evaluation monad: a computation that threads an EvalState (the scope of names in reach, a cache of thunks and their forced values, and a stack used for traces) and can stop with a typed EvalError. eval.either returns Right value or Left error; eval returns the value or throws the error.</desc>
+<defs><marker id="evaluator-tip-err" class="k-err" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="tip" d="M0 1L10 5L0 9z"/></marker><marker id="evaluator-tip-ink" class="k-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="tip" d="M0 1L10 5L0 9z"/></marker><marker id="evaluator-tip-muted-o" class="k-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="tip open" d="M1.5 1.5L8.5 5L1.5 8.5"/></marker><marker id="evaluator-tip-ok" class="k-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="tip" d="M0 1L10 5L0 9z"/></marker></defs>
+<g class="k-muted"><rect class="grp dash" x="545.0" y="192.0" width="397.0" height="88.0"/></g>
+<g class="k-ink"><path class="edge" d="M160.0 70.0 L195.0 70.0" stroke-width="1.5" marker-end="url(#evaluator-tip-ink)"/></g>
+<g class="k-ink"><path class="edge" d="M365.0 70.0 L385.0 70.0" stroke-width="1.5" marker-end="url(#evaluator-tip-ink)"/></g>
+<g class="k-ink"><path class="edge" d="M555.0 70.0 L585.0 70.0" stroke-width="1.5" marker-end="url(#evaluator-tip-ink)"/></g>
+<g class="k-ok"><path class="edge" d="M745.0 70.0 L792.0 70.0" stroke-width="1.5" marker-end="url(#evaluator-tip-ok)"/></g>
+<g class="k-err"><path class="edge" d="M641.0 98.0 L641.0 140.0 Q641.0 150.0 631.0 150.0 L430.0 150.0 Q420.0 150.0 420.0 160.0 L420.0 208.0" stroke-width="1.5" marker-end="url(#evaluator-tip-err)"/></g>
+<g class="k-muted"><path class="edge dash" d="M689.0 98.0 L689.0 140.0 Q689.0 150.0 699.0 150.0 L742.0 150.0 Q752.0 150.0 752.0 160.0 L752.0 208.0" stroke-width="1.5" marker-end="url(#evaluator-tip-muted-o)" marker-start="url(#evaluator-tip-muted-o)"/></g>
+<g class="k-file"><rect class="shadow" x="24.0" y="46.0" width="140.0" height="56.0"/><rect class="node" x="20.0" y="42.0" width="140.0" height="56.0" rx="1.5"/><text x="90.0" y="67.0" font-size="15" text-anchor="middle" class="lbl">source text</text><text x="90.0" y="84.0" font-size="12.5" text-anchor="middle" class="sub">&quot;1 + 2&quot;</text></g>
+<g class="k-ink"><rect class="shadow" x="199.0" y="46.0" width="170.0" height="56.0"/><rect class="node" x="195.0" y="42.0" width="170.0" height="56.0" rx="1.5"/><text x="280.0" y="67.0" font-size="15" text-anchor="middle" class="lbl m">parser.parse</text><text x="280.0" y="84.0" font-size="12.5" text-anchor="middle" class="sub">nix-parsec combinators</text></g>
+<g class="k-b"><rect class="shadow" x="389.0" y="46.0" width="170.0" height="56.0"/><rect class="node" x="385.0" y="42.0" width="170.0" height="56.0" rx="1.5"/><text x="470.0" y="67.0" font-size="15" text-anchor="middle" class="lbl">AST</text><text x="470.0" y="84.0" font-size="12.5" text-anchor="middle" class="sub">nodeType · fields · __src</text></g>
+<g class="k-accent"><rect class="shadow" x="589.0" y="46.0" width="160.0" height="56.0"/><rect class="node" x="585.0" y="42.0" width="160.0" height="56.0" rx="1.5"/><text x="665.0" y="67.0" font-size="15" text-anchor="middle" class="lbl m">evalM</text><text x="665.0" y="84.0" font-size="12.5" text-anchor="middle" class="sub">dispatch on nodeType</text></g>
+<g class="k-ok"><rect class="shadow" x="796.0" y="46.0" width="140.0" height="56.0"/><rect class="node" x="792.0" y="42.0" width="140.0" height="56.0" rx="1.5"/><text x="862.0" y="67.0" font-size="15" text-anchor="middle" class="lbl m">Right 3</text><text x="862.0" y="84.0" font-size="12.5" text-anchor="middle" class="sub">eval returns 3</text></g>
+<g class="k-err"><rect class="shadow" x="334.0" y="212.0" width="180.0" height="56.0"/><rect class="node" x="330.0" y="208.0" width="180.0" height="56.0" rx="1.5"/><text x="420.0" y="233.0" font-size="15" text-anchor="middle" class="lbl m">Left EvalError</text><text x="420.0" y="250.0" font-size="12.5" text-anchor="middle" class="sub">Throw · TypeError · …</text></g>
+<g class="k-muted"><rect class="shadow" x="565.0" y="212.0" width="118.0" height="56.0"/><rect class="node" x="561.0" y="208.0" width="118.0" height="56.0" rx="1.5"/><text x="620.0" y="233.0" font-size="15" text-anchor="middle" class="lbl">scope</text><text x="620.0" y="250.0" font-size="12.5" text-anchor="middle" class="sub">names in reach</text></g>
+<g class="k-muted"><rect class="shadow" x="693.0" y="212.0" width="126.0" height="56.0"/><rect class="node" x="689.0" y="208.0" width="126.0" height="56.0" rx="1.5"/><text x="752.0" y="233.0" font-size="15" text-anchor="middle" class="lbl">thunk cache</text><text x="752.0" y="250.0" font-size="12.5" text-anchor="middle" class="sub">forced values</text></g>
+<g class="k-muted"><rect class="shadow" x="830.0" y="212.0" width="100.0" height="56.0"/><rect class="node" x="826.0" y="208.0" width="100.0" height="56.0" rx="1.5"/><text x="876.0" y="233.0" font-size="15" text-anchor="middle" class="lbl">stack</text><text x="876.0" y="250.0" font-size="12.5" text-anchor="middle" class="sub">for traces</text></g>
+<g class="k-muted"><rect class="frame-tag" x="545.0" y="174.0" width="85.9" height="18"/><text x="588.0" y="187.0" font-size="10.5" text-anchor="middle" class="frame-tag-t">EVALSTATE</text></g>
+<g class="k-err"><rect class="lab-bg" x="480.1" y="140.0" width="61.8" height="20.0"/><text x="510.9" y="154.0" font-size="12" text-anchor="middle" class="elabel">or stops</text></g>
+<g class="k-muted"><rect class="lab-bg" x="694.4" y="140.0" width="58.2" height="20.0"/><text x="723.5" y="154.0" font-size="12" text-anchor="middle" class="elabel">threads</text></g>
+</svg>
+<!-- /fig -->
+    </div>
+    <figcaption><b>One computation, threaded state.</b> Names in scope, the thunk cache and the call stack travel through every step; an error is a value, not a crash.</figcaption>
+  </figure>
+  <div class="cols">
+    <div>
+      <h3>Laziness</h3>
+      <p>Nix only evaluates what a result needs, so the evaluator does too. A binding becomes a thunk: the AST node, the scope at the point it was created, and an ID. Forcing a thunk looks it up in the cache held in the evaluation state; the first force evaluates it and stores the value, later ones reuse it. Because Nix values are immutable, "storing" means returning a new state, which the monad passes on.</p>
+      <p><code>eval</code> evaluates as far as the outermost value (weak head normal form), as Nix does; <code>eval.strict</code> forces everything, which is what printing a whole list or attribute set needs.</p>
+    </div>
+    <div>
+      <h3>Errors</h3>
+      <p><code>eval.either</code> returns <code>Right value</code> or <code>Left error</code>, where the error is one of a fixed set of kinds: <code>Throw</code>, <code>Abort</code>, <code>AssertError</code>, <code>TypeError</code>, <code>UnknownIdentifierError</code>, <code>MissingAttributeError</code> and a few internal ones. <code>eval</code> returns the value, or throws the error. A missing attribute under <code>or</code> is caught, so <code>{ a = 1; }.b or 42</code> is 42.</p>
+<pre tabindex="0"><code><span class="k">eval.either</span> "1 + \"a\""</code></pre>
+      <!-- gen:out-type -->
+<pre class="result" tabindex="0" aria-label="Result"><code>Left EvalError.TypeError:
+  Incorrect types for binary operator +:
+          1 and &quot;a&quot;
+            (expected one of [ [ &quot;int&quot; &quot;float&quot; ] [ &quot;string&quot; &quot;path&quot; ] ])</code></pre>
+<!-- /gen -->
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="h-data">
+  <p class="api">mapNode · eval.eval.store</p>
+  <h2 id="h-data">Code as data</h2>
+  <div class="cols">
+    <div>
+      <p>Because a parsed expression is plain data, it can be rewritten before it is run. This swaps the operands of <code>1 + 2</code> and turns the <code>+</code> into a <code>-</code>, giving <code>2 - 1</code>:</p>
+<pre tabindex="0"><code><span class="k">let</span>
+  ast = parser.parse "1 + 2";
+  swapped = ast.mapNode (n: n // {
+    op = "-"; lhs = n.rhs; rhs = n.lhs;
+  });
+<span class="k">in</span> eval swapped</code></pre>
+      <!-- gen:out-rewrite -->
+<pre class="result" tabindex="0" aria-label="Result"><code>1</code></pre>
+<!-- /gen -->
+    </div>
+    <div>
+      <p>There is also a second, much simpler evaluator. <code>eval.eval.store</code> writes the text into the Nix store with a derivation and imports the result, so the real Nix evaluator does the work. It is fast and exact, but it needs import-from-derivation, and it offers none of the inspection the AST evaluator does.</p>
+<pre tabindex="0"><code><span class="k">eval.eval.store</span> "1 + 1"</code></pre>
+      <!-- gen:out-store -->
+<pre class="result" tabindex="0" aria-label="Result"><code>2</code></pre>
+<!-- /gen -->
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="status">
+  <p class="api">measured</p>
+  <h2 id="status">How far it gets</h2>
+  <p>Each expression below was evaluated twice, by the real Nix evaluator and by nix-reflect, by a script in the repository (<code>scripts/site/capture.py</code>). nix-reflect results are fully forced unless marked lazy. Times are for the whole <code>nix eval</code> run, so about half a second of each is starting Nix.</p>
+  <!-- gen:summary -->
+<p class="sum"><b>21 of 32</b> agree with Nix. Of the rest, 5 do not parse, and 6 parse but evaluate differently.</p>
+<!-- /gen -->
+  <div class="table-wrap" tabindex="0">
+    <!-- gen:conformance -->
+<table class="conf">
+<colgroup><col class="c-expr"><col class="c-nix"><col class="c-refl"><col class="c-t"></colgroup>
+<caption>The same expressions, evaluated by Nix and by nix-reflect</caption>
+<thead><tr><th scope="col">Expression</th><th scope="col">Nix</th><th scope="col">nix-reflect</th><th scope="col">Time</th></tr></thead>
+<tbody>
+<tr class="grp"><th colspan="4" scope="rowgroup">arithmetic</th></tr>
+<tr class="same"><td data-label="Expression"><code>1 + 2 * 3</code></td><td data-label="Nix"><code>7</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>7</code></td><td class="t" data-label="Time">1.2 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>7 / 2</code></td><td data-label="Nix"><code>3</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>3</code></td><td class="t" data-label="Time">0.8 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>1.5 * 2</code></td><td data-label="Nix"><code>3</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>3</code></td><td class="t" data-label="Time">0.8 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">strings</th></tr>
+<tr class="diff"><td data-label="Expression"><code>let name = &quot;nix&quot;; in &quot;hello ${name}&quot;</code></td><td data-label="Nix"><code>&quot;hello nix&quot;</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> internal error</td><td class="t" data-label="Time">1.1 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>&#x27;&#x27;
+  indented
+    block
+&#x27;&#x27;</code></td><td data-label="Nix"><code>&quot;indented\n  block\n&quot;</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> <code>&quot;\n  indented\n    block\n&quot;</code></td><td class="t" data-label="Time">0.6 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>&quot;a&quot; + &quot;b&quot; + toString 3</code></td><td data-label="Nix"><code>&quot;ab3&quot;</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> UnknownIdentifierError</td><td class="t" data-label="Time">1.4 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">lists</th></tr>
+<tr class="same"><td data-label="Expression"><code>[ 1 2 ] ++ [ 3 ]</code></td><td data-label="Nix"><code>[ 1 2 3 ]</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>[ 1 2 3 ]</code></td><td class="t" data-label="Time">1.3 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>builtins.map (x: x * 2) [ 1 2 3 ]</code></td><td data-label="Nix"><code>[ 2 4 6 ]</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> fails while evaluating</td><td class="t" data-label="Time">1.5 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>builtins.foldl&#x27; (a: b: a + b) 0 [ 1 2 3 4 ]</code></td><td data-label="Nix"><code>10</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> does not parse</td><td class="t" data-label="Time">0.6 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">attrsets</th></tr>
+<tr class="same"><td data-label="Expression"><code>let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y</code></td><td data-label="Nix"><code>5</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>5</code></td><td class="t" data-label="Time">3.6 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>{ a = 1; } // { b = 2; }</code></td><td data-label="Nix"><code>{ a = 1; b = 2; }</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>{ a = 1; b = 2; }</code></td><td class="t" data-label="Time">1.1 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>let x = 1; in { inherit x; y = 2; }</code></td><td data-label="Nix"><code>{ x = 1; y = 2; }</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>{ x = 1; y = 2; }</code></td><td class="t" data-label="Time">1.2 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>{ a.b.c = 1; }</code></td><td data-label="Nix"><code>{ a = { b = { c = 1; }; }; }</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> does not parse</td><td class="t" data-label="Time">0.6 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>{ a = 1; }.b or 42</code></td><td data-label="Nix"><code>42</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>42</code></td><td class="t" data-label="Time">1.0 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>builtins.attrNames { b = 1; a = 2; }</code></td><td data-label="Nix"><code>[ &quot;a&quot; &quot;b&quot; ]</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>[ &quot;a&quot; &quot;b&quot; ]</code></td><td class="t" data-label="Time">1.3 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">functions</th></tr>
+<tr class="same"><td data-label="Expression"><code>({ a, b ? 10, ... }: a + b) { a = 1; c = 3; }</code></td><td data-label="Nix"><code>11</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>11</code></td><td class="t" data-label="Time">1.8 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>(x: y: x - y) 10 3</code></td><td data-label="Nix"><code>7</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>7</code></td><td class="t" data-label="Time">2.1 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>let f = args@{ a, ... }: args.b; in f { a = 1; b = 2; }</code></td><td data-label="Nix"><code>2</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> does not parse</td><td class="t" data-label="Time">0.7 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">control</th></tr>
+<tr class="same"><td data-label="Expression"><code>if 1 &lt; 2 then &quot;yes&quot; else &quot;no&quot;</code></td><td data-label="Nix"><code>&quot;yes&quot;</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>&quot;yes&quot;</code></td><td class="t" data-label="Time">1.2 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>let x = { y = 1; }; in with x; y + 1</code></td><td data-label="Nix"><code>2</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>2</code></td><td class="t" data-label="Time">1.3 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>assert 1 == 1; &quot;ok&quot;</code></td><td data-label="Nix"><code>&quot;ok&quot;</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>&quot;ok&quot;</code></td><td class="t" data-label="Time">1.0 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">operators</th></tr>
+<tr class="diff"><td data-label="Expression"><code>{ a = 1; } ? a</code></td><td data-label="Nix"><code>true</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> does not parse</td><td class="t" data-label="Time">0.5 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>true -&gt; false</code></td><td data-label="Nix"><code>false</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> does not parse</td><td class="t" data-label="Time">0.5 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>!(1 == 2) &amp;&amp; true</code></td><td data-label="Nix"><code>true</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>true</code></td><td class="t" data-label="Time">1.0 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">laziness</th></tr>
+<tr class="diff"><td data-label="Expression"><code>let xs = [ 1 (throw &quot;boom&quot;) 3 ]; in builtins.elemAt xs 2</code></td><td data-label="Nix"><code>3</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> Throw</td><td class="t" data-label="Time"><span class="mode">lazy</span> 1.6 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>{ a = 1; b = throw &quot;boom&quot;; }.a</code></td><td data-label="Nix"><code>1</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>1</code></td><td class="t" data-label="Time"><span class="mode">lazy</span> 1.0 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>let x = throw &quot;boom&quot;; in 1</code></td><td data-label="Nix"><code>1</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>1</code></td><td class="t" data-label="Time"><span class="mode">lazy</span> 0.8 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">recursion</th></tr>
+<tr class="same"><td data-label="Expression"><code>let fib = n: if n &lt; 2 then n else fib (n - 1) + fib (n - 2); in fib 5</code></td><td data-label="Nix"><code>5</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>5</code></td><td class="t" data-label="Time"><span class="mode">lazy</span> 20.5 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>let fib = n: if n &lt; 2 then n else fib (n - 1) + fib (n - 2); in fib 7</code></td><td data-label="Nix"><code>13</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> <code>13</code></td><td class="t" data-label="Time"><span class="mode">lazy</span> 48.5 s</td></tr>
+<tr class="diff"><td data-label="Expression"><code>let fib = n: if n &lt; 2 then n else fib (n - 1) + fib (n - 2); in fib 10</code></td><td data-label="Nix"><code>55</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="differs">✗</span> stack overflow</td><td class="t" data-label="Time"><span class="mode">lazy</span> 8.5 s</td></tr>
+<tr class="grp"><th colspan="4" scope="rowgroup">errors</th></tr>
+<tr class="same"><td data-label="Expression"><code>let x = 1; in y</code></td><td data-label="Nix"><code>error</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> both refuse</td><td class="t" data-label="Time">0.5 s</td></tr>
+<tr class="same"><td data-label="Expression"><code>1 + &quot;a&quot;</code></td><td data-label="Nix"><code>error</code></td><td class="v" data-label="nix-reflect"><span class="mark" aria-label="matches">✓</span> both refuse</td><td class="t" data-label="Time">0.7 s</td></tr>
+</tbody>
+</table>
+<!-- /gen -->
+  </div>
+  <div class="cols">
+    <div>
+      <h3>What is missing</h3>
+      <ul>
+        <li><b>Syntax:</b> the <code>?</code> and <code>-&gt;</code> operators, <code>args@{ … }</code> patterns, nested paths in bindings (<code>a.b.c = 1</code>) and identifiers containing <code>'</code>, such as <code>foldl'</code>, do not parse yet.</li>
+        <li><b>Evaluation:</b> string interpolation fails inside the evaluator; builtins such as <code>map</code> cannot yet call a function defined in the evaluated code; and list elements are evaluated eagerly, so one <code>throw</code> in a list fails the whole list where Nix would not care.</li>
+        <li><b>Functions from text:</b> <code>eval.fn</code>, which builds a callable function from text and can rewrite its text or AST, fails on the current main branch: it expects <code>eval</code> to return an <code>Either</code>, and <code>eval</code> now returns the bare value.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Speed</h3>
+      <p>Interpreting Nix in Nix is slow. Every step of the evaluated program is several monadic binds, each building new attribute sets for the state, inside an evaluator that is itself interpreted. A naive <code>fib 7</code> takes most of a minute (the table has the measured time), and deep recursion exhausts the host evaluator's stack: <code>fib 10</code> fails with a stack overflow even with Nix's call-depth limit raised.</p>
+      <p>That is fine for what the library is for, reflection over small expressions and configuration, and it is the obvious place for future work: a cheaper state representation or fewer binds per node.</p>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="h-use">
+  <p class="api">flake</p>
+  <h2 id="h-use">Using it</h2>
+  <div class="cols">
+    <div>
+      <p>Add the flake as an input and use its <code>lib</code> output:</p>
+<pre tabindex="0"><code>inputs.nix-reflect.url = "github:harryaskham/nix-reflect";
+
+<span class="c"># in your outputs</span>
+<span class="k">with</span> inputs.nix-reflect.lib.${system};
+eval "let x = 2; in x * 21"   <span class="c"># 42</span></code></pre>
+    </div>
+    <div>
+      <p>Or try it from a shell. Raise Nix's call-depth limit; the evaluator recurses deeply.</p>
+<pre tabindex="0"><code><span class="p">nix eval --option max-call-depth 1000000 \
+    --apply 'lib: lib.eval "let x = 2; in x * 21"' \
+    github:harryaskham/nix-reflect#lib.x86_64-linux</span>
+<span class="o">42</span></code></pre>
+      <p>In a checkout, <code>direnv</code> provides <code>run-tests</code> (all suites, or one, such as <code>run-tests eval.ast</code>) and <code>with-lib</code> for evaluating against the library.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <span>nix-reflect</span>
+  <a href="https://github.com/harryaskham/nix-reflect">Source</a>
+  <a href="https://a.skh.am/all/">More at a.skh.am/all</a>
+</footer>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

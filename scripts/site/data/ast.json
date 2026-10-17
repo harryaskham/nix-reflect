@@ -1,0 +1,166 @@
+{
+ "kids": {
+  "bindings": {
+   "list": [
+    {
+     "kids": {
+      "lhs": {
+       "kids": {},
+       "label": "`a`",
+       "src": "a ",
+       "type": "identifier"
+      },
+      "rhs": {
+       "kids": {
+        "bindings": {
+         "list": [
+          {
+           "kids": {
+            "lhs": {
+             "kids": {},
+             "label": "`x`",
+             "src": "x ",
+             "type": "identifier"
+            },
+            "rhs": {
+             "kids": {
+              "lhs": {
+               "kids": {},
+               "label": "ℤ 1",
+               "src": "1 ",
+               "type": "int"
+              },
+              "rhs": {
+               "kids": {},
+               "label": "ℤ 1",
+               "src": "1",
+               "type": "int"
+              }
+             },
+             "label": "<_ + _>",
+             "src": "1 + 1",
+             "type": "binaryOp"
+            }
+           },
+           "label": "<_ = _>",
+           "src": "x = 1 + 1; ",
+           "type": "assignment"
+          },
+          {
+           "kids": {
+            "lhs": {
+             "kids": {},
+             "label": "`y`",
+             "src": "y ",
+             "type": "identifier"
+            },
+            "rhs": {
+             "kids": {
+              "lhs": {
+               "kids": {},
+               "label": "`x`",
+               "src": "x ",
+               "type": "identifier"
+              },
+              "rhs": {
+               "kids": {},
+               "label": "ℤ 1",
+               "src": "1",
+               "type": "int"
+              }
+             },
+             "label": "<_ + _>",
+             "src": "x + 1",
+             "type": "binaryOp"
+            }
+           },
+           "label": "<_ = _>",
+           "src": "y = x + 1; ",
+           "type": "assignment"
+          }
+         ]
+        }
+       },
+       "label": "rec {_}",
+       "src": "rec { x = 1 + 1; y = x + 1; }",
+       "type": "attrs"
+      }
+     },
+     "label": "<_ = _>",
+     "src": "a = rec { x = 1 + 1; y = x + 1; }; ",
+     "type": "assignment"
+    }
+   ]
+  },
+  "body": {
+   "kids": {
+    "lhs": {
+     "kids": {
+      "lhs": {
+       "kids": {},
+       "label": "`a`",
+       "src": "a",
+       "type": "identifier"
+      },
+      "rhs": {
+       "kids": {
+        "path": {
+         "list": [
+          {
+           "kids": {},
+           "label": "`x`",
+           "src": "x ",
+           "type": "identifier"
+          }
+         ]
+        }
+       },
+       "label": "<_._._>",
+       "src": "x ",
+       "type": "attrPath"
+      }
+     },
+     "label": "<_ . _>",
+     "src": "a.x ",
+     "type": "binaryOp"
+    },
+    "rhs": {
+     "kids": {
+      "lhs": {
+       "kids": {},
+       "label": "`a`",
+       "src": "a",
+       "type": "identifier"
+      },
+      "rhs": {
+       "kids": {
+        "path": {
+         "list": [
+          {
+           "kids": {},
+           "label": "`y`",
+           "src": "y",
+           "type": "identifier"
+          }
+         ]
+        }
+       },
+       "label": "<_._._>",
+       "src": "y",
+       "type": "attrPath"
+      }
+     },
+     "label": "<_ . _>",
+     "src": "a.y",
+     "type": "binaryOp"
+    }
+   },
+   "label": "<_ + _>",
+   "src": "a.x + a.y",
+   "type": "binaryOp"
+  }
+ },
+ "label": "let _ in _",
+ "src": "let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y",
+ "type": "letIn"
+}
