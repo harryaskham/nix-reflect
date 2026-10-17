@@ -1,0 +1,69 @@
+/* nix-reflect — a reference manual. Warm paper, Literata for headings, IBM Plex Sans for prose,
+   JetBrains Mono for code; each section is labelled with the API it describes. Divergences from
+   Nix are marked in rust. */
+
+:root {
+  --page-bg: #f6f3ea; --page-text: #25272d; --page-muted: #5c606b; --page-line: #ddd7c8;
+  --page-accent: #3b5b92; --strong: #15171c; --surface: #fffdf7; --raise: #ece7da;
+  --code-bg: #ece7da; --code-text: #22252c;
+  --page-ui: "IBM Plex Sans", system-ui, sans-serif;
+  --display: "Literata", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --k-ink: #3a3d45; --k-accent: #3b5b92; --k-a: #985a14; --k-b: #2d6e72; --k-c: #7a4a8c;
+  --k-ok: #2f7a47; --k-err: #b0452a; --k-muted: #8a8c94; --k-file: #6d6a60;
+  --same: #2f7a47; --diff: #b0452a;
+}
+
+header.intro h1 { font-size: clamp(44px, 7vw, 76px); font-weight: 600; letter-spacing: -0.03em; }
+header.intro h1::after { content: ""; display: block; width: 72px; height: 3px; margin-top: 18px;
+  background: linear-gradient(90deg, var(--strong) 50%, var(--page-accent) 50%); }
+h2 { font-weight: 600; }
+.api { margin: 0 0 6px; font: 500 13px/1.4 var(--mono); color: var(--page-accent); letter-spacing: 0.02em; }
+.fig { padding: 18px 14px; background: var(--surface); border: 1px solid var(--page-line); border-radius: 10px; }
+.dg .lab-bg { fill: var(--surface); }
+.dg .halo { stroke: var(--surface); }
+#tree + figcaption, .fig svg#tree { min-width: 760px; }
+
+table.types th { font: 500 13px/1.5 var(--mono); color: var(--page-muted); width: 6.5em; padding-top: 9px; }
+table.types code { display: inline-block; margin: 2px 2px 2px 0; }
+
+.sum { font-size: 18px; }
+.sum b { font-family: var(--display); font-size: 22px; font-weight: 650; }
+table.conf { font-size: 14px; min-width: 760px; }
+table.conf { table-layout: fixed; }
+table.conf td { padding-top: 6px; padding-bottom: 6px; vertical-align: baseline; }
+table.conf col.c-expr { width: 44%; } table.conf col.c-nix { width: 20%; } table.conf col.c-refl { width: 25%; } table.conf col.c-t { width: 11%; }
+table.conf td:first-child code { white-space: pre-wrap; background: none; padding: 0; color: var(--strong); }
+table.conf td code { white-space: pre-wrap; overflow-wrap: anywhere; }
+table.conf tr.grp th { padding-top: 16px; font: 600 12px/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--page-muted); border-bottom: 1px solid var(--page-line); }
+table.conf .mark { display: inline-block; width: 1.2em; font-weight: 700; }
+table.conf tr.same .mark { color: var(--same); }
+table.conf tr.diff .mark { color: var(--diff); }
+table.conf tr.diff td.v { color: var(--diff); }
+table.conf tr.diff td.v code { color: var(--diff); }
+table.conf td.t { font: 13px/1.5 var(--mono); color: var(--page-muted); white-space: nowrap; text-align: right; padding-right: 0; }
+table.conf .mode { margin-left: 6px; font: 500 11px/1 var(--mono); color: var(--page-accent); border: 1px solid currentColor;
+  border-radius: 3px; padding: 1px 4px; vertical-align: 1px; }
+ul li { margin-bottom: 8px; }
+
+pre.result { position: relative; margin-top: -8px; padding: 10px 16px 10px 40px; background: var(--surface);
+  border: 1px solid var(--page-line); border-left: 3px solid var(--page-accent); color: var(--strong); }
+pre.result::before { content: "⇒"; position: absolute; left: 14px; top: 10px; color: var(--page-accent); }
+code.nw { white-space: nowrap; }
+
+@media (max-width: 640px) {
+  /* The conformance table becomes one card per expression. */
+  table.conf, table.conf tbody, table.conf tr, table.conf td { display: block; width: auto; min-width: 0; }
+  table.conf { table-layout: auto; }
+  table.conf thead, table.conf colgroup { display: none; }
+  table.conf caption { display: block; }
+  table.conf tr { padding: 8px 0; border-bottom: 1px solid var(--page-line); }
+  table.conf tr.grp { border-bottom: 0; padding-bottom: 0; }
+  table.conf td { border: 0; padding: 1px 0; text-align: left; }
+  table.conf td:first-child { padding-bottom: 4px; }
+  table.conf td:not(:first-child) { display: flex; gap: 8px; align-items: baseline; }
+  table.conf td:not(:first-child)::before { content: attr(data-label); flex: none; width: 8.2em; white-space: nowrap; font: 500 11px/1.4 var(--mono);
+    color: var(--page-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  table.conf td.t { text-align: left; }
+}
