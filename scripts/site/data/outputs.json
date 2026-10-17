@@ -1,0 +1,11 @@
+{
+ "missing": "Left EvalError.MissingAttributeError:\n  b",
+ "nodeType": "binaryOp",
+ "rewrite": "1",
+ "rightTwo": "Right 2",
+ "src": "1   +   2",
+ "store": "2",
+ "typeError": "Left EvalError.TypeError:\n  Incorrect types for binary operator +:\n  \n          1 and \"a\"\n            \n            (expected one of [ [ \"int\" \"float\" ] [ \"string\" \"path\" ] ])\n  ",
+ "unknown": "Left EvalError.UnknownIdentifierError:\n  Undefined identifier 'y' in current scope:\n  \"<eval failed>\"\n  ",
+ "value": "5"
+}

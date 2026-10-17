@@ -1,0 +1,578 @@
+[
+ {
+  "group": "arithmetic",
+  "expr": "1 + 2 * 3",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "7",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "7",
+   "err": "",
+   "s": 1.0
+  }
+ },
+ {
+  "group": "arithmetic",
+  "expr": "7 / 2",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "3",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "3",
+   "err": "",
+   "s": 0.7
+  }
+ },
+ {
+  "group": "arithmetic",
+  "expr": "1.5 * 2",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "3",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "3",
+   "err": "",
+   "s": 0.6
+  }
+ },
+ {
+  "group": "strings",
+  "expr": "let name = \"nix\"; in \"hello ${name}\"",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "\"hello nix\"",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "do: expected a statement of form ( Eval Any ) or",
+   "s": 0.8
+  }
+ },
+ {
+  "group": "strings",
+  "expr": "''\n  indented\n    block\n''",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "\"indented\\n  block\\n\"",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "\"\\n  indented\\n    block\\n\"",
+   "err": "",
+   "s": 0.5
+  }
+ },
+ {
+  "group": "strings",
+  "expr": "\"a\" + \"b\" + toString 3",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "\"ab3\"",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.UnknownIdentifierError: Undefined identifier 'toString' in current scope: { HOME = ...;",
+   "s": 0.9
+  }
+ },
+ {
+  "group": "lists",
+  "expr": "[ 1 2 ] ++ [ 3 ]",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "[ 1 2 3 ]",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "[ 1 2 3 ]",
+   "err": "",
+   "s": 1.1
+  }
+ },
+ {
+  "group": "lists",
+  "expr": "builtins.map (x: x * 2) [ 1 2 3 ]",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "[ 2 4 6 ]",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
+   "s": 1.2
+  }
+ },
+ {
+  "group": "lists",
+  "expr": "builtins.foldl' (a: b: a + b) 0 [ 1 2 3 4 ]",
+  "mode": "strict",
+  "parses": false,
+  "nix": {
+   "ok": true,
+   "out": "10",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
+   "s": 0.4
+  }
+ },
+ {
+  "group": "attrsets",
+  "expr": "let a = rec { x = 1 + 1; y = x + 1; }; in a.x + a.y",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "5",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "5",
+   "err": "",
+   "s": 2.0
+  }
+ },
+ {
+  "group": "attrsets",
+  "expr": "{ a = 1; } // { b = 2; }",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "{ a = 1; b = 2; }",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "{ a = 1; b = 2; }",
+   "err": "",
+   "s": 0.9
+  }
+ },
+ {
+  "group": "attrsets",
+  "expr": "let x = 1; in { inherit x; y = 2; }",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "{ x = 1; y = 2; }",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "{ x = 1; y = 2; }",
+   "err": "",
+   "s": 0.9
+  }
+ },
+ {
+  "group": "attrsets",
+  "expr": "{ a.b.c = 1; }",
+  "mode": "strict",
+  "parses": false,
+  "nix": {
+   "ok": true,
+   "out": "{ a = { b = { c = 1; }; }; }",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
+   "s": 0.5
+  }
+ },
+ {
+  "group": "attrsets",
+  "expr": "{ a = 1; }.b or 42",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "42",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "42",
+   "err": "",
+   "s": 0.8
+  }
+ },
+ {
+  "group": "attrsets",
+  "expr": "builtins.attrNames { b = 1; a = 2; }",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "[ \"a\" \"b\" ]",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "[ \"a\" \"b\" ]",
+   "err": "",
+   "s": 1.0
+  }
+ },
+ {
+  "group": "functions",
+  "expr": "({ a, b ? 10, ... }: a + b) { a = 1; c = 3; }",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "11",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "11",
+   "err": "",
+   "s": 1.1
+  }
+ },
+ {
+  "group": "functions",
+  "expr": "(x: y: x - y) 10 3",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "7",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "7",
+   "err": "",
+   "s": 1.1
+  }
+ },
+ {
+  "group": "functions",
+  "expr": "let f = args@{ a, ... }: args.b; in f { a = 1; b = 2; }",
+  "mode": "strict",
+  "parses": false,
+  "nix": {
+   "ok": true,
+   "out": "2",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
+   "s": 0.4
+  }
+ },
+ {
+  "group": "control",
+  "expr": "if 1 < 2 then \"yes\" else \"no\"",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "\"yes\"",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "\"yes\"",
+   "err": "",
+   "s": 0.7
+  }
+ },
+ {
+  "group": "control",
+  "expr": "let x = { y = 1; }; in with x; y + 1",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "2",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "2",
+   "err": "",
+   "s": 1.1
+  }
+ },
+ {
+  "group": "control",
+  "expr": "assert 1 == 1; \"ok\"",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "\"ok\"",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "\"ok\"",
+   "err": "",
+   "s": 0.7
+  }
+ },
+ {
+  "group": "operators",
+  "expr": "{ a = 1; } ? a",
+  "mode": "strict",
+  "parses": false,
+  "nix": {
+   "ok": true,
+   "out": "true",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
+   "s": 0.4
+  }
+ },
+ {
+  "group": "operators",
+  "expr": "true -> false",
+  "mode": "strict",
+  "parses": false,
+  "nix": {
+   "ok": true,
+   "out": "false",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
+   "s": 0.4
+  }
+ },
+ {
+  "group": "operators",
+  "expr": "!(1 == 2) && true",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "true",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "true",
+   "err": "",
+   "s": 0.8
+  }
+ },
+ {
+  "group": "laziness",
+  "expr": "let xs = [ 1 (throw \"boom\") 3 ]; in builtins.elemAt xs 2",
+  "mode": "lazy",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "3",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.Throw: boom",
+   "s": 1.3
+  }
+ },
+ {
+  "group": "laziness",
+  "expr": "{ a = 1; b = throw \"boom\"; }.a",
+  "mode": "lazy",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "1",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "1",
+   "err": "",
+   "s": 0.8
+  }
+ },
+ {
+  "group": "laziness",
+  "expr": "let x = throw \"boom\"; in 1",
+  "mode": "lazy",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "1",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "1",
+   "err": "",
+   "s": 0.7
+  }
+ },
+ {
+  "group": "recursion",
+  "expr": "let fib = n: if n < 2 then n else fib (n - 1) + fib (n - 2); in fib 5",
+  "mode": "lazy",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "5",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "5",
+   "err": "",
+   "s": 14.4
+  }
+ },
+ {
+  "group": "recursion",
+  "expr": "let fib = n: if n < 2 then n else fib (n - 1) + fib (n - 2); in fib 7",
+  "mode": "lazy",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "13",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": true,
+   "out": "13",
+   "err": "",
+   "s": 43.6
+  }
+ },
+ {
+  "group": "recursion",
+  "expr": "let fib = n: if n < 2 then n else fib (n - 1) + fib (n - 2); in fib 10",
+  "mode": "lazy",
+  "parses": true,
+  "nix": {
+   "ok": true,
+   "out": "55",
+   "err": "",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "stack overflow (possible infinite recursion)",
+   "s": 8.6
+  }
+ },
+ {
+  "group": "errors",
+  "expr": "let x = 1; in y",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": false,
+   "out": "",
+   "err": "undefined variable 'y' at /tmp/tmpscy88kds/e.nix:1:15: 1| let x = 1; in y",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.UnknownIdentifierError: Undefined identifier 'y' in current scope: { HOME = ...;",
+   "s": 0.6
+  }
+ },
+ {
+  "group": "errors",
+  "expr": "1 + \"a\"",
+  "mode": "strict",
+  "parses": true,
+  "nix": {
+   "ok": false,
+   "out": "",
+   "err": "cannot add a string to an integer at /tmp/tmpscy88kds/e.nix:1:5: 1| 1 + \"a\"",
+   "s": 0.0
+  },
+  "reflect": {
+   "ok": false,
+   "out": "",
+   "err": "Eval error: EvalError.TypeError: Incorrect types for binary operator +: __START_INDENT__1__END_INDENT__ and \"a\"",
+   "s": 0.6
+  }
+ }
+]

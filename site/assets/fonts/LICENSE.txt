@@ -1,0 +1,6 @@
+Fonts in this folder are licensed under the SIL Open Font License 1.1
+(https://openfontlicense.org). They were taken unmodified from these packages:
+
+  Literata: @fontsource-variable/literata@5.3.0
+  IBM Plex Sans: @fontsource-variable/ibm-plex-sans@5.3.0
+  JetBrains Mono: @fontsource-variable/jetbrains-mono@5.3.0
