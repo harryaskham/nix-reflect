@@ -14,7 +14,7 @@
    "ok": true,
    "out": "7",
    "err": "",
-   "s": 1.2
+   "s": 1.0
   }
  },
  {
@@ -32,7 +32,7 @@
    "ok": true,
    "out": "3",
    "err": "",
-   "s": 0.8
+   "s": 0.7
   }
  },
  {
@@ -50,7 +50,7 @@
    "ok": true,
    "out": "3",
    "err": "",
-   "s": 0.8
+   "s": 0.6
   }
  },
  {
@@ -68,7 +68,7 @@
    "ok": false,
    "out": "",
    "err": "do: expected a statement of form ( Eval Any ) or",
-   "s": 1.1
+   "s": 0.8
   }
  },
  {
@@ -86,7 +86,7 @@
    "ok": true,
    "out": "\"\\n  indented\\n    block\\n\"",
    "err": "",
-   "s": 0.6
+   "s": 0.5
   }
  },
  {
@@ -98,13 +98,13 @@
    "ok": true,
    "out": "\"ab3\"",
    "err": "",
-   "s": 0.1
+   "s": 0.0
   },
   "reflect": {
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.UnknownIdentifierError: Undefined identifier 'toString' in current scope: { HOME = ...;",
-   "s": 1.4
+   "s": 0.9
   }
  },
  {
@@ -122,7 +122,7 @@
    "ok": true,
    "out": "[ 1 2 3 ]",
    "err": "",
-   "s": 1.3
+   "s": 1.1
   }
  },
  {
@@ -140,7 +140,7 @@
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
-   "s": 1.5
+   "s": 1.2
   }
  },
  {
@@ -158,7 +158,7 @@
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
-   "s": 0.6
+   "s": 0.4
   }
  },
  {
@@ -170,13 +170,13 @@
    "ok": true,
    "out": "5",
    "err": "",
-   "s": 0.1
+   "s": 0.0
   },
   "reflect": {
    "ok": true,
    "out": "5",
    "err": "",
-   "s": 3.6
+   "s": 2.0
   }
  },
  {
@@ -194,7 +194,7 @@
    "ok": true,
    "out": "{ a = 1; b = 2; }",
    "err": "",
-   "s": 1.1
+   "s": 0.9
   }
  },
  {
@@ -212,7 +212,7 @@
    "ok": true,
    "out": "{ x = 1; y = 2; }",
    "err": "",
-   "s": 1.2
+   "s": 0.9
   }
  },
  {
@@ -230,7 +230,7 @@
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
-   "s": 0.6
+   "s": 0.5
   }
  },
  {
@@ -248,7 +248,7 @@
    "ok": true,
    "out": "42",
    "err": "",
-   "s": 1.0
+   "s": 0.8
   }
  },
  {
@@ -266,7 +266,7 @@
    "ok": true,
    "out": "[ \"a\" \"b\" ]",
    "err": "",
-   "s": 1.3
+   "s": 1.0
   }
  },
  {
@@ -284,7 +284,7 @@
    "ok": true,
    "out": "11",
    "err": "",
-   "s": 1.8
+   "s": 1.1
   }
  },
  {
@@ -296,13 +296,13 @@
    "ok": true,
    "out": "7",
    "err": "",
-   "s": 0.1
+   "s": 0.0
   },
   "reflect": {
    "ok": true,
    "out": "7",
    "err": "",
-   "s": 2.1
+   "s": 1.1
   }
  },
  {
@@ -314,13 +314,13 @@
    "ok": true,
    "out": "2",
    "err": "",
-   "s": 0.1
+   "s": 0.0
   },
   "reflect": {
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
-   "s": 0.7
+   "s": 0.4
   }
  },
  {
@@ -338,7 +338,7 @@
    "ok": true,
    "out": "\"yes\"",
    "err": "",
-   "s": 1.2
+   "s": 0.7
   }
  },
  {
@@ -356,7 +356,7 @@
    "ok": true,
    "out": "2",
    "err": "",
-   "s": 1.3
+   "s": 1.1
   }
  },
  {
@@ -374,7 +374,7 @@
    "ok": true,
    "out": "\"ok\"",
    "err": "",
-   "s": 1.0
+   "s": 0.7
   }
  },
  {
@@ -392,7 +392,7 @@
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
-   "s": 0.5
+   "s": 0.4
   }
  },
  {
@@ -410,7 +410,7 @@
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.SyntaxError: Failed to bind: ({_, ...}: <RHS eval failed>)",
-   "s": 0.5
+   "s": 0.4
   }
  },
  {
@@ -428,7 +428,7 @@
    "ok": true,
    "out": "true",
    "err": "",
-   "s": 1.0
+   "s": 0.8
   }
  },
  {
@@ -446,7 +446,7 @@
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.Throw: boom",
-   "s": 1.6
+   "s": 1.3
   }
  },
  {
@@ -464,7 +464,7 @@
    "ok": true,
    "out": "1",
    "err": "",
-   "s": 1.0
+   "s": 0.8
   }
  },
  {
@@ -482,7 +482,7 @@
    "ok": true,
    "out": "1",
    "err": "",
-   "s": 0.8
+   "s": 0.7
   }
  },
  {
@@ -500,7 +500,7 @@
    "ok": true,
    "out": "5",
    "err": "",
-   "s": 20.5
+   "s": 14.4
   }
  },
  {
@@ -518,7 +518,7 @@
    "ok": true,
    "out": "13",
    "err": "",
-   "s": 48.5
+   "s": 43.6
   }
  },
  {
@@ -536,7 +536,7 @@
    "ok": false,
    "out": "",
    "err": "stack overflow (possible infinite recursion)",
-   "s": 8.5
+   "s": 8.6
   }
  },
  {
@@ -547,14 +547,14 @@
   "nix": {
    "ok": false,
    "out": "",
-   "err": "undefined variable 'y' at /tmp/tmp5earbu_b/e.nix:1:15: 1| let x = 1; in y",
+   "err": "undefined variable 'y' at /tmp/tmpscy88kds/e.nix:1:15: 1| let x = 1; in y",
    "s": 0.0
   },
   "reflect": {
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.UnknownIdentifierError: Undefined identifier 'y' in current scope: { HOME = ...;",
-   "s": 0.5
+   "s": 0.6
   }
  },
  {
@@ -565,14 +565,14 @@
   "nix": {
    "ok": false,
    "out": "",
-   "err": "cannot add a string to an integer at /tmp/tmp5earbu_b/e.nix:1:5: 1| 1 + \"a\"",
+   "err": "cannot add a string to an integer at /tmp/tmpscy88kds/e.nix:1:5: 1| 1 + \"a\"",
    "s": 0.0
   },
   "reflect": {
    "ok": false,
    "out": "",
    "err": "Eval error: EvalError.TypeError: Incorrect types for binary operator +: __START_INDENT__1__END_INDENT__ and \"a\"",
-   "s": 0.7
+   "s": 0.6
   }
  }
 ]

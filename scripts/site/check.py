@@ -59,7 +59,7 @@ class Page(html.parser.HTMLParser):
 
 def main() -> int:
     bad: list[str] = []
-    for script in ("build.py", "subset-font.py"):
+    for script in ("data.py", "build.py", "subset-font.py"):
         if (HERE / script).exists():
             r = subprocess.run([sys.executable, str(HERE / script), "--check"], capture_output=True, text=True)
             if r.returncode:
